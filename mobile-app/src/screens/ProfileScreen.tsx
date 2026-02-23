@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
+import { FontAwesome5, MaterialIcons } from '@expo/vector-icons';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -36,7 +37,7 @@ export default function ProfileScreen() {
     return (
       <View style={styles.container}>
         <View style={styles.guestContainer}>
-          <Text style={styles.guestIcon}>👤</Text>
+          <FontAwesome5 name="user-circle" size={80} color="#ccc" />
           <Text style={styles.guestTitle}>Mode Invité</Text>
           <Text style={styles.guestText}>
             Connectez-vous pour accéder à toutes les fonctionnalités
@@ -82,45 +83,45 @@ export default function ProfileScreen() {
           style={styles.menuItem}
           onPress={() => router.push('/edit-profile' as any)}
         >
-          <Text style={styles.menuIcon}>📝</Text>
+          <FontAwesome5 name="edit" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
           <Text style={styles.menuText}>Modifier le profil</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <MaterialIcons name="chevron-right" size={24} color="#ccc" />
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.menuItem}
           onPress={() => router.push('/courses-historique' as any)}
         >
-          <Text style={styles.menuIcon}>🚗</Text>
+          <FontAwesome5 name="car" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
           <Text style={styles.menuText}>Mes courses</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <MaterialIcons name="chevron-right" size={24} color="#ccc" />
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.menuItem}
           onPress={() => router.push('/paiement' as any)}
         >
-          <Text style={styles.menuIcon}>💳</Text>
+          <FontAwesome5 name="credit-card" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
           <Text style={styles.menuText}>Moyens de paiement</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <MaterialIcons name="chevron-right" size={24} color="#ccc" />
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.menuItem}
           onPress={() => router.push('/tickets-historique' as any)}
         >
-          <Text style={styles.menuIcon}>🎟️</Text>
+          <FontAwesome5 name="ticket-alt" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
           <Text style={styles.menuText}>Mes tickets</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <MaterialIcons name="chevron-right" size={24} color="#ccc" />
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.menuItem}
           onPress={() => router.push('/btp-historique' as any)}
         >
-          <Text style={styles.menuIcon}>🚜</Text>
+          <FontAwesome5 name="truck" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
           <Text style={styles.menuText}>Mes commandes BTP</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <MaterialIcons name="chevron-right" size={24} color="#ccc" />
         </TouchableOpacity>
       </View>
 
@@ -128,24 +129,24 @@ export default function ProfileScreen() {
         <Text style={styles.sectionTitle}>Paramètres</Text>
 
         <TouchableOpacity style={styles.menuItem}>
-          <Text style={styles.menuIcon}>🔔</Text>
+          <FontAwesome5 name="bell" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
           <Text style={styles.menuText}>Notifications</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <MaterialIcons name="chevron-right" size={24} color="#ccc" />
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.menuItem}>
-          <Text style={styles.menuIcon}>🌍</Text>
+          <FontAwesome5 name="globe" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
           <Text style={styles.menuText}>Langue</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <MaterialIcons name="chevron-right" size={24} color="#ccc" />
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.menuItem}
           onPress={() => router.push('/support' as any)}
         >
-          <Text style={styles.menuIcon}>❓</Text>
+          <FontAwesome5 name="question-circle" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
           <Text style={styles.menuText}>Aide & Support</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <MaterialIcons name="chevron-right" size={24} color="#ccc" />
         </TouchableOpacity>
       </View>
 
@@ -172,13 +173,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
   },
-  guestIcon: {
-    fontSize: 80,
-    marginBottom: 20,
-  },
   guestTitle: {
     fontSize: 24,
     fontWeight: 'bold',
+    marginTop: 20,
     marginBottom: 10,
     color: '#333',
   },
@@ -274,18 +272,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f5f5f5',
   },
-  menuIcon: {
-    fontSize: 24,
-    marginRight: 15,
-  },
   menuText: {
     flex: 1,
     fontSize: 16,
     color: '#333',
-  },
-  menuArrow: {
-    fontSize: 24,
-    color: '#ccc',
   },
   logoutButton: {
     backgroundColor: '#fff',

@@ -11,11 +11,12 @@ import {
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
 import api from '../services/api';
+import { FontAwesome5 } from '@expo/vector-icons';
 
 const COMPAGNIES = [
-  { id: 'utb', nom: 'UTB', logo: '🚌', couleur: '#FF6B35' },
-  { id: 'sta', nom: 'STA', logo: '🚍', couleur: '#4CAF50' },
-  { id: 'rvs', nom: 'RVS', logo: '🚐', couleur: '#2196F3' },
+  { id: 'utb', nom: 'UTB', logo: 'bus', couleur: '#FF6B35' },
+  { id: 'sta', nom: 'STA', logo: 'bus-alt', couleur: '#4CAF50' },
+  { id: 'rvs', nom: 'RVS', logo: 'shuttle-van', couleur: '#2196F3' },
 ];
 
 const TRAJETS = [
@@ -148,7 +149,7 @@ export default function TicketsScreen() {
               ]}
               onPress={() => setSelectedCompagnie(compagnie.id)}
             >
-              <Text style={styles.compagnieLogo}>{compagnie.logo}</Text>
+              <FontAwesome5 name={compagnie.logo} size={24} color={compagnie.couleur} />
               <Text style={styles.compagnieNom}>{compagnie.nom}</Text>
             </TouchableOpacity>
           ))}
@@ -163,7 +164,7 @@ export default function TicketsScreen() {
           return (
             <View key={trajet.id} style={styles.trajetCard}>
               <View style={styles.trajetHeader}>
-                <Text style={styles.trajetLogo}>{compagnie?.logo}</Text>
+                <FontAwesome5 name={compagnie?.logo} size={24} color={compagnie?.couleur} />
                 <Text style={styles.trajetCompagnie}>{compagnie?.nom}</Text>
                 <View style={styles.siegesBadge}>
                   <Text style={styles.siegesText}>

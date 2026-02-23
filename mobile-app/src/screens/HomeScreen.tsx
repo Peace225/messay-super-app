@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
+import Icon from '../components/Icon';
+import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
 
@@ -112,28 +114,28 @@ export default function HomeScreen() {
     {
       id: 'tricycle',
       title: 'Tricycle',
-      icon: '🛺',
+      icon: 'motorcycle',
       description: 'Déplacement rapide en ville',
       screen: 'Tricycle',
     },
     {
       id: 'transport',
       title: 'Transport',
-      icon: '🚌',
+      icon: 'bus',
       description: 'Voyages interurbains',
       screen: 'Transport',
     },
     {
       id: 'events',
       title: 'Événements',
-      icon: '🎟️',
+      icon: 'ticket-alt',
       description: 'Concerts, sports, spectacles',
       screen: 'Events',
     },
     {
       id: 'btp',
       title: 'Lacarrière',
-      icon: '🚜',
+      icon: 'truck',
       description: 'Matériaux de construction',
       screen: 'BTP',
     },
@@ -141,21 +143,24 @@ export default function HomeScreen() {
 
   const getGreeting = () => {
     const hour = new Date().getHours();
-    if (hour < 12) return '☀️ Bonjour';
-    if (hour < 18) return '🌤️ Bon après-midi';
-    return '🌙 Bonsoir';
+    if (hour < 12) return { text: 'Bonjour', icon: 'sun' };
+    if (hour < 18) return { text: 'Bon après-midi', icon: 'cloud-sun' };
+    return { text: 'Bonsoir', icon: 'moon' };
   };
 
   const getWelcomeMessage = () => {
+    const greeting = getGreeting();
     if (user) {
       return {
-        greeting: `${getGreeting()},`,
+        greeting: greeting.text,
+        greetingIcon: greeting.icon,
         name: `${user.prenom || user.nom}`,
         message: 'Ravi de vous revoir ! Que souhaitez-vous faire aujourd\'hui ?',
       };
     }
     return {
-      greeting: getGreeting(),
+      greeting: greeting.text,
+      greetingIcon: greeting.icon,
       name: 'Bienvenue sur MESSAY',
       message: 'Découvrez nos services de transport et bien plus encore',
     };
@@ -181,7 +186,7 @@ export default function HomeScreen() {
             { transform: [{ scale: pulseAnim }] },
           ]}
         >
-          <Text style={styles.logoIcon}>🚀</Text>
+          <FontAwesome5 name="rocket" size={28} color="#fff" style={{ marginRight: 8 }} />
           <Text style={styles.appTitle}>MESSAY</Text>
           <Animated.View
             style={[
@@ -191,7 +196,7 @@ export default function HomeScreen() {
               },
             ]}
           >
-            <Text style={styles.sparkleText}>✨</Text>
+            <FontAwesome5 name="star" size={16} color="#FFD700" />
           </Animated.View>
         </Animated.View>
         {user ? (
@@ -217,7 +222,7 @@ export default function HomeScreen() {
               style={styles.loginButton}
               onPress={() => router.push('/login')}
             >
-              <Text style={styles.loginIcon}>👤</Text>
+              <Ionicons name="person" size={18} color="#FF6B35" style={{ marginRight: 6 }} />
               <Text style={styles.loginButtonText}>Connexion</Text>
             </TouchableOpacity>
           </Animated.View>
@@ -236,7 +241,10 @@ export default function HomeScreen() {
           ]}
         >
           <View style={styles.greetingContainer}>
-            <Text style={styles.greeting}>{welcome.greeting}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
+              <FontAwesome5 name={welcome.greetingIcon} size={18} color="#FF6B35" style={{ marginRight: 8 }} />
+              <Text style={styles.greeting}>{welcome.greeting}</Text>
+            </View>
             <Animated.Text 
               style={[
                 styles.userName,
@@ -270,7 +278,7 @@ export default function HomeScreen() {
                 },
               ]}
             >
-              <Text style={styles.animatedTricycle}>🛺</Text>
+              <FontAwesome5 name="motorcycle" size={40} color="#FF6B35" />
             </Animated.View>
             
             {/* Route animée avec pointillés */}
@@ -284,7 +292,7 @@ export default function HomeScreen() {
             </View>
             
             {/* Nuages décoratifs */}
-            <Animated.Text
+            <Animated.View
               style={[
                 styles.cloud,
                 styles.cloud1,
@@ -296,9 +304,9 @@ export default function HomeScreen() {
                 },
               ]}
             >
-              ☁️
-            </Animated.Text>
-            <Animated.Text
+              <Ionicons name="cloud" size={24} color="#E0E0E0" />
+            </Animated.View>
+            <Animated.View
               style={[
                 styles.cloud,
                 styles.cloud2,
@@ -310,8 +318,8 @@ export default function HomeScreen() {
                 },
               ]}
             >
-              ☁️
-            </Animated.Text>
+              <Ionicons name="cloud" size={24} color="#E0E0E0" />
+            </Animated.View>
           </View>
         </Animated.View>
 
@@ -357,7 +365,7 @@ export default function HomeScreen() {
                   activeOpacity={0.7}
                 >
                   <View style={styles.serviceIconContainer}>
-                    <Text style={styles.serviceIcon}>{service.icon}</Text>
+                    <FontAwesome5 name={service.icon} size={36} color="#FF6B35" />
                   </View>
                   <Text style={styles.serviceTitle}>{service.title}</Text>
                   <Text style={styles.serviceDescription}>{service.description}</Text>
@@ -380,9 +388,8 @@ export default function HomeScreen() {
           <Text style={styles.sectionTitle}>Promotions</Text>
           <TouchableOpacity style={styles.promoCard} activeOpacity={0.8}>
             <View style={styles.promoIconContainer}>
-              <Animated.Text 
+              <Animated.View
                 style={[
-                  styles.promoIcon,
                   {
                     transform: [
                       {
@@ -396,8 +403,8 @@ export default function HomeScreen() {
                   },
                 ]}
               >
-                🎉
-              </Animated.Text>
+                <FontAwesome5 name="gift" size={28} color="#FFB800" />
+              </Animated.View>
             </View>
             <View style={styles.promoContent}>
               <Text style={styles.promoTitle}>Bienvenue sur MESSAY !</Text>
@@ -439,10 +446,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'relative',
   },
-  logoIcon: {
-    fontSize: 28,
-    marginRight: 8,
-  },
   appTitle: {
     fontSize: 26,
     fontWeight: 'bold',
@@ -453,9 +456,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -10,
     right: -15,
-  },
-  sparkleText: {
-    fontSize: 20,
   },
   profileButton: {
     position: 'relative',
@@ -503,10 +503,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 3,
     elevation: 5,
-  },
-  loginIcon: {
-    fontSize: 18,
-    marginRight: 6,
   },
   loginButtonText: {
     color: '#FF6B35',
@@ -559,9 +555,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 10,
     zIndex: 2,
-  },
-  animatedTricycle: {
-    fontSize: 40,
   },
   roadContainer: {
     position: 'absolute',
@@ -651,9 +644,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  serviceIcon: {
-    fontSize: 36,
-  },
   serviceTitle: {
     fontSize: 17,
     fontWeight: 'bold',
@@ -695,9 +685,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 15,
-  },
-  promoIcon: {
-    fontSize: 28,
   },
   promoContent: {
     flex: 1,

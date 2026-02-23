@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "MESSAY",
+    "slug": "messay-super-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.messay.app"
+    },
+    "android": {
+      "package": "com.messay.app",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA"
+      ]
+    },
+    "web": {},
+    "plugins": [
+      "expo-router"
+    ],
+    "scheme": "messay",
+    "extra": {
+      "router": {
+        "origin": false
+      }
+    }
+  }
+}

@@ -1,0 +1,477 @@
+// Schéma Prisma pour MESSAY Super App
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// AUTHENTIFICATION & UTILISATEURS
+// ============================================
+
+enum UserRole {
+  USER
+  CONDUCTEUR
+  CHAUFFEUR
+  ADMIN
+  PARTENAIRE
+}
+
+enum MoyenPaiement {
+  CARTE_BANCAIRE
+  ORANGE_MONEY
+  MTN_MOMO
+  WAVE
+  ESPECES
+}
+
+model User {
+  id                String    @id @default(uuid())
+  nom               String
+  prenom            String?
+  email             String    @unique
+  telephone         String    @unique
+  password          String
+  role              UserRole  @default(USER)
+  photo             String?
+  moyenPaiement     MoyenPaiement?
+  isVerified        Boolean   @default(false)
+  otpCode           String?
+  otpExpiry         DateTime?
+  refreshToken      String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Relations
+  courses           Course[]
+  tickets           Ticket[]
+  commandesBTP      CommandeBTP[]
+  paiements         Paiement[]
+  supportTickets    SupportTicket[]
+  notifications     Notification[]
+  conducteurProfile Conducteur?
+  chauffeurProfile  Chauffeur?
+  
+  @@index([email])
+  @@index([telephone])
+}
+
+// ============================================
+// MOBILITÉ URBAINE - TRICYCLES
+// ============================================
+
+enum CourseStatus {
+  EN_ATTENTE
+  ACCEPTEE
+  EN_COURS
+  TERMINEE
+  ANNULEE
+}
+
+model Conducteur {
+  id                  String    @id @default(uuid())
+  userId              String    @unique
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permis              String
+  numeroPermis        String    @unique
+  vehiculeType        String    @default("TRICYCLE")
+  immatriculation     String    @unique
+  statut              String    @default("DISPONIBLE") // DISPONIBLE, EN_COURSE, HORS_LIGNE
+  positionLatitude    Float?
+  positionLongitude   Float?
+  note                Float     @default(5.0)
+  nombreCourses       Int       @default(0)
+  selfieVerification  String?
+  isVerified          Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  
+  // Relations
+  courses             Course[]
+  
+  @@index([statut])
+  @@index([positionLatitude, positionLongitude])
+}
+
+model Course {
+  id                    String        @id @default(uuid())
+  userId                String
+  user                  User          @relation(fields: [userId], references: [id])
+  conducteurId          String?
+  conducteur            Conducteur?   @relation(fields: [conducteurId], references: [id])
+  departLatitude        Float
+  departLongitude       Float
+  departAdresse         String
+  destinationLatitude   Float
+  destinationLongitude  Float
+  destinationAdresse    String
+  distance              Float         // en km
+  dureeEstimee          Int           // en minutes
+  prix                  Float
+  statut                CourseStatus  @default(EN_ATTENTE)
+  partageTrajet         Boolean       @default(false)
+  noteConducteur        Float?
+  commentaire           String?
+  positionLiveLatitude  Float?
+  positionLiveLongitude Float?
+  heureDebut            DateTime?
+  heureFin              DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  
+  @@index([userId])
+  @@index([conducteurId])
+  @@index([statut])
+  @@index([createdAt])
+}
+
+// ============================================
+// TRANSPORT INTERURBAIN
+// ============================================
+
+enum CompagnieTransport {
+  UTBS
+  BTA
+  RVS
+}
+
+enum TicketStatus {
+  RESERVE
+  PAYE
+  UTILISE
+  ANNULE
+  EXPIRE
+}
+
+model Ticket {
+  id              String              @id @default(uuid())
+  userId          String
+  user            User                @relation(fields: [userId], references: [id])
+  compagnie       CompagnieTransport
+  depart          String
+  destination     String
+  dateDepart      DateTime
+  heureDepart     String
+  siege           String
+  prix            Float
+  qrCode          String              @unique
+  statut          TicketStatus        @default(RESERVE)
+  paiementId      String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  
+  @@index([userId])
+  @@index([qrCode])
+  @@index([dateDepart])
+}
+
+// ============================================
+// LOISIRS & ÉVÉNEMENTIEL
+// ============================================
+
+enum EventCategorie {
+  CONCERT
+  SPORT
+  THEATRE
+  CONFERENCE
+  FESTIVAL
+  AUTRE
+}
+
+model Event {
+  id              String          @id @default(uuid())
+  titre           String
+  description     String
+  categorie       EventCategorie
+  date            DateTime
+  heureDebut      String
+  lieu            String
+  adresse         String
+  latitude        Float?
+  longitude       Float?
+  prix            Float
+  image           String?
+  placesDisponibles Int
+  placesTotal     Int
+  organisateur    String
+  isActif         Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  // Relations
+  billets         BilletEvent[]
+  
+  @@index([date])
+  @@index([categorie])
+}
+
+model BilletEvent {
+  id              String    @id @default(uuid())
+  userId          String
+  eventId         String
+  event           Event     @relation(fields: [eventId], references: [id])
+  quantite        Int       @default(1)
+  prixTotal       Float
+  qrCode          String    @unique
+  statut          String    @default("VALIDE") // VALIDE, UTILISE, ANNULE
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([eventId])
+  @@index([qrCode])
+}
+
+// ============================================
+// MODULE BTP - LACARRIÈRE
+// ============================================
+
+enum TypeMateriau {
+  SABLE
+  GRAVIER
+  CIMENT
+  PIERRE
+  BETON
+}
+
+enum TypeCamion {
+  BENNE
+  CITERNE
+  PLATEAU
+  MALAXEUR
+}
+
+enum CommandeBTPStatus {
+  EN_ATTENTE
+  CONFIRMEE
+  EN_ROUTE
+  LIVREE
+  ANNULEE
+}
+
+model CommandeBTP {
+  id                    String              @id @default(uuid())
+  userId                String
+  user                  User                @relation(fields: [userId], references: [id])
+  typeMateriau          TypeMateriau
+  quantite              Float               // en tonnes ou m³
+  unite                 String              @default("TONNE")
+  typeCamion            TypeCamion
+  adresseLivraison      String
+  latitudeLivraison     Float
+  longitudeLivraison    Float
+  dateLivraison         DateTime
+  heurePreferee         String?
+  prix                  Float
+  statut                CommandeBTPStatus   @default(EN_ATTENTE)
+  chauffeurId           String?
+  chauffeur             Chauffeur?          @relation(fields: [chauffeurId], references: [id])
+  camionId              String?
+  camion                Camion?             @relation(fields: [camionId], references: [id])
+  positionLiveLatitude  Float?
+  positionLiveLongitude Float?
+  etaMinutes            Int?
+  noteChauffeur         Float?
+  commentaire           String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  
+  @@index([userId])
+  @@index([chauffeurId])
+  @@index([statut])
+  @@index([dateLivraison])
+}
+
+model Chauffeur {
+  id                  String          @id @default(uuid())
+  userId              String          @unique
+  user                User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permis              String
+  numeroPermis        String          @unique
+  photo               String?
+  experience          Int             @default(0) // années
+  notation            Float           @default(5.0)
+  nombreLivraisons    Int             @default(0)
+  statut              String          @default("DISPONIBLE")
+  positionLatitude    Float?
+  positionLongitude   Float?
+  isVerified          Boolean         @default(false)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  
+  // Relations
+  commandes           CommandeBTP[]
+  
+  @@index([statut])
+}
+
+model Camion {
+  id                  String          @id @default(uuid())
+  type                TypeCamion
+  capacite            Float           // en tonnes
+  immatriculation     String          @unique
+  marque              String?
+  modele              String?
+  annee               Int?
+  statut              String          @default("DISPONIBLE")
+  positionLatitude    Float?
+  positionLongitude   Float?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  
+  // Relations
+  commandes           CommandeBTP[]
+  
+  @@index([statut])
+  @@index([type])
+}
+
+// ============================================
+// PAIEMENTS
+// ============================================
+
+enum PaiementStatus {
+  EN_ATTENTE
+  REUSSI
+  ECHOUE
+  REMBOURSE
+}
+
+enum TypeTransaction {
+  COURSE
+  TICKET_TRANSPORT
+  BILLET_EVENT
+  COMMANDE_BTP
+  RECHARGE
+}
+
+model Paiement {
+  id              String          @id @default(uuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id])
+  montant         Float
+  moyen           MoyenPaiement
+  typeTransaction TypeTransaction
+  referenceId     String          // ID de la course, ticket, etc.
+  statut          PaiementStatus  @default(EN_ATTENTE)
+  transactionId   String?         @unique
+  stripePaymentId String?
+  recu            String?         // URL du reçu PDF
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  @@index([userId])
+  @@index([statut])
+  @@index([transactionId])
+  @@index([createdAt])
+}
+
+// ============================================
+// SUPPORT CLIENT
+// ============================================
+
+enum TypeDemande {
+  QUESTION
+  RECLAMATION
+  OBJET_PERDU
+  LITIGE
+  TECHNIQUE
+  AUTRE
+}
+
+enum SupportStatus {
+  OUVERT
+  EN_COURS
+  RESOLU
+  FERME
+}
+
+model SupportTicket {
+  id              String        @id @default(uuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+  typeDemande     TypeDemande
+  sujet           String
+  message         String
+  statut          SupportStatus @default(OUVERT)
+  priorite        String        @default("NORMALE") // BASSE, NORMALE, HAUTE, URGENTE
+  assigneA        String?       // ID admin
+  reponse         String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  // Relations
+  messages        SupportMessage[]
+  
+  @@index([userId])
+  @@index([statut])
+}
+
+model SupportMessage {
+  id              String        @id @default(uuid())
+  ticketId        String
+  ticket          SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderId        String        // User ID ou Admin ID
+  senderRole      String        // USER ou ADMIN
+  message         String
+  createdAt       DateTime      @default(now())
+  
+  @@index([ticketId])
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+enum NotificationType {
+  COURSE
+  TICKET
+  EVENT
+  BTP
+  PAIEMENT
+  SUPPORT
+  SYSTEME
+}
+
+model Notification {
+  id              String            @id @default(uuid())
+  userId          String
+  user            User              @relation(fields: [userId], references: [id])
+  type            NotificationType
+  titre           String
+  message         String
+  data            String?           // JSON data
+  isRead          Boolean           @default(false)
+  createdAt       DateTime          @default(now())
+  
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+// ============================================
+// CONFIGURATION & PARAMÈTRES
+// ============================================
+
+model TarifCourse {
+  id              String    @id @default(uuid())
+  prixBase        Float     @default(500)     // FCFA
+  prixParKm       Float     @default(200)     // FCFA
+  prixParMinute   Float     @default(50)      // FCFA
+  fraisService    Float     @default(0.15)    // 15%
+  isActif         Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Configuration {
+  id              String    @id @default(uuid())
+  cle             String    @unique
+  valeur          String
+  description     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}

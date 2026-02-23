@@ -7,28 +7,101 @@ import {
   ScrollView,
   Animated,
   Easing,
+  Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
 
+const { width } = Dimensions.get('window');
+
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
+  
+  // Animations
   const tricycleAnim = useRef(new Animated.Value(-100)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const sparkleAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
-  // Animation du tricycle qui roule
+  // Animation du tricycle qui roule avec rebond
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
         Animated.timing(tricycleAnim, {
-          toValue: 400,
-          duration: 3000,
-          easing: Easing.linear,
+          toValue: width + 50,
+          duration: 4000,
+          easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
         Animated.timing(tricycleAnim, {
           toValue: -100,
           duration: 0,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+
+  // Animation d'entrée
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 600,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  // Animation de scintillement
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(sparkleAnim, {
+          toValue: 1,
+          duration: 1500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(sparkleAnim, {
+          toValue: 0,
+          duration: 1500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+
+  // Animation de pulsation pour le logo
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.1,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
       ])
@@ -73,108 +146,258 @@ export default function HomeScreen() {
     return '🌙 Bonsoir';
   };
 
+  const getWelcomeMessage = () => {
+    if (user) {
+      return {
+        greeting: `${getGreeting()},`,
+        name: `${user.prenom || user.nom}`,
+        message: 'Ravi de vous revoir ! Que souhaitez-vous faire aujourd\'hui ?',
+      };
+    }
+    return {
+      greeting: getGreeting(),
+      name: 'Bienvenue sur MESSAY',
+      message: 'Découvrez nos services de transport et bien plus encore',
+    };
+  };
+
+  const welcome = getWelcomeMessage();
+
   return (
     <View style={styles.container}>
       {/* Header avec logo et profil */}
-      <View style={styles.topBar}>
-        <View style={styles.logoContainer}>
+      <Animated.View 
+        style={[
+          styles.topBar,
+          {
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }],
+          },
+        ]}
+      >
+        <Animated.View 
+          style={[
+            styles.logoContainer,
+            { transform: [{ scale: pulseAnim }] },
+          ]}
+        >
           <Text style={styles.logoIcon}>🚀</Text>
           <Text style={styles.appTitle}>MESSAY</Text>
-        </View>
+          <Animated.View
+            style={[
+              styles.sparkle,
+              {
+                opacity: sparkleAnim,
+              },
+            ]}
+          >
+            <Text style={styles.sparkleText}>✨</Text>
+          </Animated.View>
+        </Animated.View>
         {user ? (
           <TouchableOpacity 
             onPress={() => router.push('/(tabs)/profile')}
             style={styles.profileButton}
           >
-            <View style={styles.avatar}>
+            <Animated.View 
+              style={[
+                styles.avatar,
+                { transform: [{ scale: scaleAnim }] },
+              ]}
+            >
               <Text style={styles.avatarText}>
                 {user.nom.charAt(0).toUpperCase()}
               </Text>
-            </View>
+            </Animated.View>
             <View style={styles.onlineIndicator} />
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity 
-            style={styles.loginButton}
-            onPress={() => router.push('/login')}
-          >
-            <Text style={styles.loginIcon}>👤</Text>
-            <Text style={styles.loginButtonText}>Connexion</Text>
-          </TouchableOpacity>
+          <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+            <TouchableOpacity 
+              style={styles.loginButton}
+              onPress={() => router.push('/login')}
+            >
+              <Text style={styles.loginIcon}>👤</Text>
+              <Text style={styles.loginButtonText}>Connexion</Text>
+            </TouchableOpacity>
+          </Animated.View>
         )}
-      </View>
+      </Animated.View>
 
       <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Section de bienvenue avec animation */}
-        <View style={styles.welcomeSection}>
+        <Animated.View 
+          style={[
+            styles.welcomeSection,
+            {
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+            },
+          ]}
+        >
           <View style={styles.greetingContainer}>
-            <Text style={styles.greeting}>{getGreeting()},</Text>
-            <Text style={styles.userName}>
-              {user ? `${user.prenom || user.nom}` : 'Invité'}
-            </Text>
-            {!user && (
-              <Text style={styles.welcomeSubtext}>
-                Découvrez nos services et connectez-vous pour profiter de toutes les fonctionnalités
-              </Text>
-            )}
-            {user && (
-              <Text style={styles.welcomeSubtext}>
-                Ravi de vous revoir ! Que souhaitez-vous faire aujourd'hui ?
-              </Text>
-            )}
-          </View>
-
-          {/* Tricycle animé */}
-          <View style={styles.animationContainer}>
-            <Animated.Text
+            <Text style={styles.greeting}>{welcome.greeting}</Text>
+            <Animated.Text 
               style={[
-                styles.animatedTricycle,
+                styles.userName,
                 {
-                  transform: [{ translateX: tricycleAnim }],
+                  transform: [{ translateX: slideAnim }],
                 },
               ]}
             >
-              🛺
+              {welcome.name}
             </Animated.Text>
-            <View style={styles.road} />
+            <Text style={styles.welcomeSubtext}>
+              {welcome.message}
+            </Text>
           </View>
-        </View>
 
-        {/* Services */}
+          {/* Tricycle animé avec effets */}
+          <View style={styles.animationContainer}>
+            <Animated.View
+              style={[
+                styles.tricycleContainer,
+                {
+                  transform: [
+                    { translateX: tricycleAnim },
+                    {
+                      rotate: tricycleAnim.interpolate({
+                        inputRange: [-100, width + 50],
+                        outputRange: ['0deg', '360deg'],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <Text style={styles.animatedTricycle}>🛺</Text>
+            </Animated.View>
+            
+            {/* Route animée avec pointillés */}
+            <View style={styles.roadContainer}>
+              <View style={styles.road} />
+              <View style={styles.roadDashes}>
+                {[...Array(10)].map((_, i) => (
+                  <View key={i} style={styles.dash} />
+                ))}
+              </View>
+            </View>
+            
+            {/* Nuages décoratifs */}
+            <Animated.Text
+              style={[
+                styles.cloud,
+                styles.cloud1,
+                {
+                  opacity: sparkleAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.3, 0.7],
+                  }),
+                },
+              ]}
+            >
+              ☁️
+            </Animated.Text>
+            <Animated.Text
+              style={[
+                styles.cloud,
+                styles.cloud2,
+                {
+                  opacity: sparkleAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.5, 0.9],
+                  }),
+                },
+              ]}
+            >
+              ☁️
+            </Animated.Text>
+          </View>
+        </Animated.View>
+
+        {/* Services avec animation d'entrée */}
         <View style={styles.servicesContainer}>
-          <View style={styles.sectionHeader}>
+          <Animated.View 
+            style={[
+              styles.sectionHeader,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
+          >
             <Text style={styles.sectionTitle}>Nos Services</Text>
             <Text style={styles.sectionSubtitle}>Choisissez votre service</Text>
-          </View>
+          </Animated.View>
           <View style={styles.servicesGrid}>
-            {services.map((service) => (
-              <TouchableOpacity
+            {services.map((service, index) => (
+              <Animated.View
                 key={service.id}
-                style={styles.serviceCard}
-                onPress={() => {
-                  if (service.id === 'tricycle') router.push('/(tabs)/tricycle');
-                  if (service.id === 'transport') router.push('/(tabs)/tickets');
-                  if (service.id === 'events') router.push('/(tabs)/tickets');
-                  if (service.id === 'btp') router.push('/(tabs)/btp');
+                style={{
+                  opacity: fadeAnim,
+                  transform: [
+                    {
+                      translateY: slideAnim.interpolate({
+                        inputRange: [0, 50],
+                        outputRange: [0, 50 + index * 10],
+                      }),
+                    },
+                    { scale: scaleAnim },
+                  ],
                 }}
-                activeOpacity={0.7}
               >
-                <View style={styles.serviceIconContainer}>
-                  <Text style={styles.serviceIcon}>{service.icon}</Text>
-                </View>
-                <Text style={styles.serviceTitle}>{service.title}</Text>
-                <Text style={styles.serviceDescription}>{service.description}</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.serviceCard}
+                  onPress={() => {
+                    if (service.id === 'tricycle') router.push('/(tabs)/tricycle');
+                    if (service.id === 'transport') router.push('/(tabs)/tickets');
+                    if (service.id === 'events') router.push('/(tabs)/tickets');
+                    if (service.id === 'btp') router.push('/(tabs)/btp');
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.serviceIconContainer}>
+                    <Text style={styles.serviceIcon}>{service.icon}</Text>
+                  </View>
+                  <Text style={styles.serviceTitle}>{service.title}</Text>
+                  <Text style={styles.serviceDescription}>{service.description}</Text>
+                </TouchableOpacity>
+              </Animated.View>
             ))}
           </View>
         </View>
 
-        {/* Promotions */}
-        <View style={styles.promoSection}>
+        {/* Promotions avec animation */}
+        <Animated.View 
+          style={[
+            styles.promoSection,
+            {
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+            },
+          ]}
+        >
           <Text style={styles.sectionTitle}>Promotions</Text>
-          <View style={styles.promoCard}>
+          <TouchableOpacity style={styles.promoCard} activeOpacity={0.8}>
             <View style={styles.promoIconContainer}>
-              <Text style={styles.promoIcon}>🎉</Text>
+              <Animated.Text 
+                style={[
+                  styles.promoIcon,
+                  {
+                    transform: [
+                      {
+                        rotate: sparkleAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0deg', '360deg'],
+                        }),
+                      },
+                      { scale: pulseAnim },
+                    ],
+                  },
+                ]}
+              >
+                🎉
+              </Animated.Text>
             </View>
             <View style={styles.promoContent}>
               <Text style={styles.promoTitle}>Bienvenue sur MESSAY !</Text>
@@ -182,8 +405,11 @@ export default function HomeScreen() {
                 Profitez de -20% sur votre première course
               </Text>
             </View>
-          </View>
-        </View>
+            <View style={styles.promoBadge}>
+              <Text style={styles.promoBadgeText}>-20%</Text>
+            </View>
+          </TouchableOpacity>
+        </Animated.View>
       </ScrollView>
     </View>
   );
@@ -211,6 +437,7 @@ const styles = StyleSheet.create({
   logoContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    position: 'relative',
   },
   logoIcon: {
     fontSize: 28,
@@ -221,6 +448,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
     letterSpacing: 1,
+  },
+  sparkle: {
+    position: 'absolute',
+    top: -10,
+    right: -15,
+  },
+  sparkleText: {
+    fontSize: 20,
   },
   profileButton: {
     position: 'relative',
@@ -315,23 +550,60 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   animationContainer: {
-    height: 60,
+    height: 80,
     position: 'relative',
     overflow: 'hidden',
+    marginTop: 10,
+  },
+  tricycleContainer: {
+    position: 'absolute',
+    top: 10,
+    zIndex: 2,
   },
   animatedTricycle: {
     fontSize: 40,
+  },
+  roadContainer: {
     position: 'absolute',
-    top: 10,
+    bottom: 20,
+    left: 0,
+    right: 0,
+    height: 4,
   },
   road: {
     position: 'absolute',
-    bottom: 10,
+    bottom: 0,
     left: 0,
     right: 0,
-    height: 3,
+    height: 4,
     backgroundColor: '#ddd',
     borderRadius: 2,
+  },
+  roadDashes: {
+    position: 'absolute',
+    bottom: 8,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  dash: {
+    width: 20,
+    height: 2,
+    backgroundColor: '#bbb',
+    borderRadius: 1,
+  },
+  cloud: {
+    position: 'absolute',
+    fontSize: 24,
+  },
+  cloud1: {
+    top: 5,
+    left: 30,
+  },
+  cloud2: {
+    top: 15,
+    right: 50,
   },
   servicesContainer: {
     paddingHorizontal: 20,
@@ -412,6 +684,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 3,
+    position: 'relative',
+    overflow: 'hidden',
   },
   promoIconContainer: {
     width: 50,
@@ -438,5 +712,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     lineHeight: 20,
+  },
+  promoBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#FF6B35',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    transform: [{ rotate: '15deg' }],
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  promoBadgeText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 });

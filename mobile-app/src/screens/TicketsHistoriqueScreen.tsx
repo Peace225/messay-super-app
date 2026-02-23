@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import api from '../services/api';
+import { FontAwesome5 } from '@expo/vector-icons';
 
 export default function TicketsHistoriqueScreen() {
   const router = useRouter();
@@ -111,7 +112,7 @@ export default function TicketsHistoriqueScreen() {
       >
         {tickets.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>🎟️</Text>
+            <FontAwesome5 name="ticket-alt" size={64} color="#ccc" style={{ marginBottom: 20 }} />
             <Text style={styles.emptyText}>Aucun ticket</Text>
             <Text style={styles.emptySubtext}>
               Vos tickets apparaîtront ici

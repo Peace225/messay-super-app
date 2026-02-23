@@ -8,13 +8,14 @@ import {
   Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { FontAwesome5 } from '@expo/vector-icons';
 
 const MOYENS_PAIEMENT = [
-  { id: 'CARTE_BANCAIRE', nom: 'Carte Bancaire', icon: '💳', couleur: '#4CAF50' },
-  { id: 'ORANGE_MONEY', nom: 'Orange Money', icon: '🟠', couleur: '#FF9800' },
-  { id: 'MTN_MOMO', nom: 'MTN Mobile Money', icon: '🟡', couleur: '#FFEB3B' },
-  { id: 'WAVE', nom: 'Wave', icon: '🌊', couleur: '#2196F3' },
-  { id: 'ESPECES', nom: 'Espèces', icon: '💵', couleur: '#4CAF50' },
+  { id: 'CARTE_BANCAIRE', nom: 'Carte Bancaire', icon: 'credit-card', iconColor: '#4CAF50', couleur: '#4CAF50' },
+  { id: 'ORANGE_MONEY', nom: 'Orange Money', icon: 'circle', iconColor: '#FF9800', couleur: '#FF9800' },
+  { id: 'MTN_MOMO', nom: 'MTN Mobile Money', icon: 'circle', iconColor: '#FFEB3B', couleur: '#FFEB3B' },
+  { id: 'WAVE', nom: 'Wave', icon: 'water', iconColor: '#2196F3', couleur: '#2196F3' },
+  { id: 'ESPECES', nom: 'Espèces', icon: 'money-bill-wave', iconColor: '#4CAF50', couleur: '#4CAF50' },
 ];
 
 interface PaiementScreenProps {
@@ -83,7 +84,7 @@ export default function PaiementScreen({ montant, type, onSuccess }: PaiementScr
             ]}
             onPress={() => setSelectedMoyen(moyen.id)}
           >
-            <Text style={styles.moyenIcon}>{moyen.icon}</Text>
+            <FontAwesome5 name={moyen.icon} size={32} color={moyen.iconColor} style={{ marginRight: 15 }} />
             <Text style={styles.moyenNom}>{moyen.nom}</Text>
             {selectedMoyen === moyen.id && (
               <Text style={styles.checkIcon}>✓</Text>

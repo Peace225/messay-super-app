@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { authService } from '../services/authService';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -115,7 +116,7 @@ export default function RegisterScreen() {
           style={styles.eyeIcon}
           onPress={() => setShowPassword(!showPassword)}
         >
-          <Text style={styles.eyeText}>{showPassword ? '👁️' : '👁️‍🗨️'}</Text>
+          <Ionicons name={showPassword ? 'eye' : 'eye-off'} size={24} color="#666" />
         </TouchableOpacity>
       </View>
 
@@ -131,7 +132,7 @@ export default function RegisterScreen() {
           style={styles.eyeIcon}
           onPress={() => setShowConfirmPassword(!showConfirmPassword)}
         >
-          <Text style={styles.eyeText}>{showConfirmPassword ? '👁️' : '👁️‍🗨️'}</Text>
+          <Ionicons name={showConfirmPassword ? 'eye' : 'eye-off'} size={24} color="#666" />
         </TouchableOpacity>
       </View>
 

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { courseService } from '../services/courseService';
+import { FontAwesome5 } from '@expo/vector-icons';
 
 export default function CoursesHistoriqueScreen() {
   const router = useRouter();
@@ -98,7 +99,7 @@ export default function CoursesHistoriqueScreen() {
       >
         {courses.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>🛺</Text>
+            <FontAwesome5 name="motorcycle" size={64} color="#ccc" style={{ marginBottom: 20 }} />
             <Text style={styles.emptyText}>Aucune course</Text>
             <Text style={styles.emptySubtext}>
               Vos courses apparaîtront ici

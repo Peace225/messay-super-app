@@ -10,13 +10,14 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
+import { FontAwesome5 } from '@expo/vector-icons';
 
 const TYPES_DEMANDE = [
-  { id: 'PROBLEME_TECHNIQUE', nom: 'Problème technique', icon: '🔧' },
-  { id: 'OBJET_PERDU', nom: 'Objet perdu', icon: '🔍' },
-  { id: 'LITIGE', nom: 'Litige', icon: '⚖️' },
-  { id: 'QUESTION', nom: 'Question', icon: '❓' },
-  { id: 'AUTRE', nom: 'Autre', icon: '💬' },
+  { id: 'PROBLEME_TECHNIQUE', nom: 'Problème technique', icon: 'wrench' },
+  { id: 'OBJET_PERDU', nom: 'Objet perdu', icon: 'search' },
+  { id: 'LITIGE', nom: 'Litige', icon: 'balance-scale' },
+  { id: 'QUESTION', nom: 'Question', icon: 'question-circle' },
+  { id: 'AUTRE', nom: 'Autre', icon: 'comments' },
 ];
 
 export default function SupportScreen() {
@@ -87,7 +88,7 @@ export default function SupportScreen() {
               ]}
               onPress={() => setSelectedType(type.id)}
             >
-              <Text style={styles.typeIcon}>{type.icon}</Text>
+              <FontAwesome5 name={type.icon} size={24} color={selectedType === type.id ? '#fff' : '#FF6B35'} />
               <Text style={styles.typeNom}>{type.nom}</Text>
             </TouchableOpacity>
           ))}
@@ -135,7 +136,7 @@ export default function SupportScreen() {
         <Text style={styles.sectionTitle}>Contact rapide</Text>
         
         <TouchableOpacity style={styles.contactCard}>
-          <Text style={styles.contactIcon}>📞</Text>
+          <FontAwesome5 name="phone" size={32} color="#FF6B35" style={{ marginRight: 15 }} />
           <View style={styles.contactInfo}>
             <Text style={styles.contactTitle}>Téléphone</Text>
             <Text style={styles.contactValue}>+225 07 00 00 00 00</Text>
@@ -143,7 +144,7 @@ export default function SupportScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.contactCard}>
-          <Text style={styles.contactIcon}>📧</Text>
+          <FontAwesome5 name="envelope" size={32} color="#FF6B35" style={{ marginRight: 15 }} />
           <View style={styles.contactInfo}>
             <Text style={styles.contactTitle}>Email</Text>
             <Text style={styles.contactValue}>support@messay.com</Text>
@@ -151,7 +152,7 @@ export default function SupportScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.contactCard}>
-          <Text style={styles.contactIcon}>💬</Text>
+          <FontAwesome5 name="comments" size={32} color="#FF6B35" style={{ marginRight: 15 }} />
           <View style={styles.contactInfo}>
             <Text style={styles.contactTitle}>Chat en direct</Text>
             <Text style={styles.contactValue}>Disponible 24/7</Text>

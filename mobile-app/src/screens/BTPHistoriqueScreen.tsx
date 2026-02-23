@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import api from '../services/api';
+import { FontAwesome5 } from '@expo/vector-icons';
 
 export default function BTPHistoriqueScreen() {
   const router = useRouter();
@@ -98,7 +99,7 @@ export default function BTPHistoriqueScreen() {
       >
         {commandes.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>📦</Text>
+            <FontAwesome5 name="truck" size={64} color="#ccc" style={{ marginBottom: 20 }} />
             <Text style={styles.emptyText}>Aucune commande</Text>
             <Text style={styles.emptySubtext}>
               Vos commandes apparaîtront ici

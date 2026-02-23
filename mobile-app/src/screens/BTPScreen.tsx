@@ -12,18 +12,19 @@ import {
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
 import api from '../services/api';
+import { FontAwesome5 } from '@expo/vector-icons';
 
 const MATERIAUX = [
-  { id: 'sable', nom: 'Sable', icon: '🏖️', unite: 'm³', prixUnitaire: 15000 },
-  { id: 'gravier', nom: 'Gravier', icon: '🪨', unite: 'm³', prixUnitaire: 18000 },
-  { id: 'ciment', nom: 'Ciment', icon: '🏗️', unite: 'sac', prixUnitaire: 5500 },
-  { id: 'fer', nom: 'Fer à béton', icon: '⚙️', unite: 'tonne', prixUnitaire: 450000 },
+  { id: 'sable', nom: 'Sable', icon: 'mountain', unite: 'm³', prixUnitaire: 15000 },
+  { id: 'gravier', nom: 'Gravier', icon: 'cube', unite: 'm³', prixUnitaire: 18000 },
+  { id: 'ciment', nom: 'Ciment', icon: 'building', unite: 'sac', prixUnitaire: 5500 },
+  { id: 'fer', nom: 'Fer à béton', icon: 'cog', unite: 'tonne', prixUnitaire: 450000 },
 ];
 
 const CAMIONS = [
-  { id: 'benne', nom: 'Camion Benne', icon: '🚛', capacite: '10 tonnes' },
-  { id: 'citerne', nom: 'Camion Citerne', icon: '🚚', capacite: '8000 litres' },
-  { id: 'plateau', nom: 'Camion Plateau', icon: '🚐', capacite: '5 tonnes' },
+  { id: 'benne', nom: 'Camion Benne', icon: 'truck', capacite: '10 tonnes' },
+  { id: 'citerne', nom: 'Camion Citerne', icon: 'truck-moving', capacite: '8000 litres' },
+  { id: 'plateau', nom: 'Camion Plateau', icon: 'shuttle-van', capacite: '5 tonnes' },
 ];
 
 export default function BTPScreen() {
@@ -107,7 +108,7 @@ export default function BTPScreen() {
               ]}
               onPress={() => setSelectedMateriau(materiau)}
             >
-              <Text style={styles.materiauIcon}>{materiau.icon}</Text>
+              <FontAwesome5 name={materiau.icon} size={32} color="#FF6B35" />
               <Text style={styles.materiauNom}>{materiau.nom}</Text>
               <Text style={styles.materiauPrix}>
                 {materiau.prixUnitaire.toLocaleString()} FCFA/{materiau.unite}
@@ -152,7 +153,7 @@ export default function BTPScreen() {
               ]}
               onPress={() => setSelectedCamion(camion)}
             >
-              <Text style={styles.camionIcon}>{camion.icon}</Text>
+              <FontAwesome5 name={camion.icon} size={32} color="#FF6B35" style={{ marginRight: 15 }} />
               <View style={styles.camionInfo}>
                 <Text style={styles.camionNom}>{camion.nom}</Text>
                 <Text style={styles.camionCapacite}>Capacité: {camion.capacite}</Text>

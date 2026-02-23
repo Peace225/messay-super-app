@@ -145,6 +145,35 @@ router.get('/nearby-drivers', (req, res) => courseController.findNearbyDrivers(r
 
 /**
  * @swagger
+ * /api/courses/weekly-stats:
+ *   get:
+ *     summary: Obtenir les statistiques hebdomadaires
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Statistiques hebdomadaires
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   name:
+ *                     type: string
+ *                   courses:
+ *                     type: number
+ *                   revenue:
+ *                     type: number
+ *       401:
+ *         description: Non authentifié
+ */
+router.get('/weekly-stats', (req, res) => courseController.getWeeklyStats(req, res));
+
+/**
+ * @swagger
  * /api/courses/{id}:
  *   get:
  *     summary: Obtenir les détails d'une course

@@ -65,4 +65,67 @@ router.get('/:id', authenticate, userController.getUserById);
  */
 router.patch('/:id/toggle-status', authenticate, userController.toggleUserStatus);
 
+/**
+ * @swagger
+ * /api/users/{id}:
+ *   put:
+ *     summary: Mettre à jour un utilisateur
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               nom:
+ *                 type: string
+ *               prenom:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               telephone:
+ *                 type: string
+ *               currentPassword:
+ *                 type: string
+ *               newPassword:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Utilisateur mis à jour
+ *       404:
+ *         description: Utilisateur non trouvé
+ */
+router.put('/:id', authenticate, userController.updateUser);
+
+/**
+ * @swagger
+ * /api/users/{id}:
+ *   delete:
+ *     summary: Supprimer un utilisateur
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Utilisateur supprimé
+ *       404:
+ *         description: Utilisateur non trouvé
+ */
+router.delete('/:id', authenticate, userController.deleteUser);
+
 export default router;

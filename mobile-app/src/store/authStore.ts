@@ -33,7 +33,10 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   isLoading: true,
 
-  setUser: (user) => set({ user, isAuthenticated: true }),
+  setUser: (user) => {
+    AsyncStorage.setItem('user', JSON.stringify(user));
+    set({ user, isAuthenticated: true });
+  },
 
   setTokens: async (accessToken, refreshToken) => {
     await AsyncStorage.setItem('accessToken', accessToken);

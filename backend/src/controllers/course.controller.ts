@@ -131,4 +131,16 @@ export class CourseController {
       res.status(500).json({ error: error.message });
     }
   }
+
+  /**
+   * GET /api/courses/weekly-stats - Obtenir les statistiques hebdomadaires
+   */
+  async getWeeklyStats(req: Request, res: Response): Promise<void> {
+    try {
+      const stats = await courseService.getWeeklyStats();
+      res.status(200).json(stats);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
 }

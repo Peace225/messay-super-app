@@ -111,4 +111,121 @@ export class UserController {
       res.status(500).json({ error: error.message });
     }
   }
+
+  /**
+   * PUT /api/users/:id
+   * Mettre à jour un utilisateur
+   */
+  async updateUser(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { nom, prenom, email, telephone, currentPassword, newPassword } = req.body;
+
+      // Vérifier que l'utilisateur existe
+      const user = await prisma.user.findUnique({
+        where: { id },
+      });
+
+      if (!user) {
+        res.status(404).json({ error: 'Utilisateur non trouvé' });
+        return;
+      }
+
+      // Vérifier que l'utilisateur ne modifie que son propre profil (sauf admin)
+      if (req.userId !== id && req.userRole !== 'ADMIN') {
+        res.status(403).json({ error: 'Non autorisé' });
+        return;
+      }
+
+      const updateData: any = {
+        nom,
+        prenom,
+        email,
+        telephone,
+      };
+
+      // Si changement de mot de passe demandé
+      if (newPassword) {
+        if (!currentPassword) {
+          res.status(400).json({ error: 'Mot de passe actuel requis' });
+          return;
+        }
+
+        // Vérifier le mot de passe actuel
+        const bcrypt = require('bcryptjs');
+        const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+        
+        if (!isPasswordValid) {
+          res.status(400).json({ error: 'Mot de passe actuel incorrect' });
+          return;
+        }
+
+        // Hasher le nouveau mot de passe
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        updateData.password = hashedPassword;
+      }
+
+      // Mettre à jour l'utilisateur
+      const updatedUser = await prisma.user.update({
+        where: { id },
+        data: updateData,
+        select: {
+          id: true,
+          nom: true,
+          prenom: true,
+          email: true,
+          telephone: true,
+          role: true,
+          photo: true,
+          isVerified: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      res.status(200).json({
+        message: 'Profil mis à jour avec succès',
+        user: updatedUser,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  /**
+   * DELETE /api/users/:id
+   * Supprimer un utilisateur
+   */
+  async deleteUser(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      // Vérifier que l'utilisateur existe
+      const user = await prisma.user.findUnique({
+        where: { id },
+      });
+
+      if (!user) {
+        res.status(404).json({ error: 'Utilisateur non trouvé' });
+        return;
+      }
+
+      // Vérifier que l'utilisateur ne supprime que son propre compte (sauf admin)
+      if (req.userId !== id && req.userRole !== 'ADMIN') {
+        res.status(403).json({ error: 'Non autorisé' });
+        return;
+      }
+
+      // Supprimer l'utilisateur
+      await prisma.user.delete({
+        where: { id },
+      });
+
+      res.status(200).json({
+        message: 'Compte supprimé avec succès',
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
 }

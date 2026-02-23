@@ -329,4 +329,43 @@ export class CourseService {
       orderBy: { createdAt: 'desc' },
     });
   }
+
+  /**
+   * Obtenir les statistiques hebdomadaires
+   */
+  async getWeeklyStats() {
+    const today = new Date();
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - today.getDay()); // Dimanche
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const courses = await prisma.course.findMany({
+      where: {
+        createdAt: {
+          gte: startOfWeek,
+        },
+      },
+      select: {
+        createdAt: true,
+        prix: true,
+      },
+    });
+
+    // Initialiser les données pour chaque jour
+    const weekDays = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+    const stats = weekDays.map((name, index) => ({
+      name,
+      courses: 0,
+      revenue: 0,
+    }));
+
+    // Compter les courses par jour
+    courses.forEach((course) => {
+      const dayIndex = course.createdAt.getDay();
+      stats[dayIndex].courses += 1;
+      stats[dayIndex].revenue += course.prix;
+    });
+
+    return stats;
+  }
 }

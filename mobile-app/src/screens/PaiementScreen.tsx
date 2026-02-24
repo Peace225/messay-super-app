@@ -7,7 +7,7 @@ import {
   ScrollView,
   Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { FontAwesome5 } from '@expo/vector-icons';
 
 const MOYENS_PAIEMENT = [
@@ -18,14 +18,14 @@ const MOYENS_PAIEMENT = [
   { id: 'ESPECES', nom: 'Espèces', icon: 'money-bill-wave', iconColor: '#4CAF50', couleur: '#4CAF50' },
 ];
 
-interface PaiementScreenProps {
-  montant: number;
-  type: string;
-  onSuccess?: () => void;
-}
-
-export default function PaiementScreen({ montant, type, onSuccess }: PaiementScreenProps) {
+export default function PaiementScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  
+  // Récupérer les paramètres de la route
+  const montant = params.montant ? parseFloat(params.montant as string) : 0;
+  const type = (params.type as string) || 'Service';
+  
   const [selectedMoyen, setSelectedMoyen] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -42,7 +42,7 @@ export default function PaiementScreen({ montant, type, onSuccess }: PaiementScr
       setLoading(false);
       Alert.alert(
         'Paiement réussi !',
-        `Votre paiement de ${montant} FCFA a été effectué avec succès.`,
+        `Votre paiement de ${montant.toLocaleString()} FCFA a été effectué avec succès.`,
         [
           {
             text: 'Télécharger le reçu',
@@ -53,7 +53,6 @@ export default function PaiementScreen({ montant, type, onSuccess }: PaiementScr
           {
             text: 'OK',
             onPress: () => {
-              if (onSuccess) onSuccess();
               router.back();
             },
           },
@@ -65,6 +64,9 @@ export default function PaiementScreen({ montant, type, onSuccess }: PaiementScr
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <FontAwesome5 name="arrow-left" size={20} color="#333" />
+        </TouchableOpacity>
         <Text style={styles.title}>Paiement</Text>
         <View style={styles.montantCard}>
           <Text style={styles.montantLabel}>Montant à payer</Text>
@@ -119,6 +121,9 @@ const styles = StyleSheet.create({
     paddingTop: 50,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
+  },
+  backButton: {
+    marginBottom: 15,
   },
   title: {
     fontSize: 24,

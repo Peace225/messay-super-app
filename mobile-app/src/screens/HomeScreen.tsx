@@ -8,10 +8,10 @@ import {
   Animated,
   Easing,
   Dimensions,
+  FlatList,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
-import Icon from '../components/Icon';
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
@@ -34,8 +34,8 @@ export default function HomeScreen() {
       Animated.sequence([
         Animated.timing(tricycleAnim, {
           toValue: width + 50,
-          duration: 4000,
-          easing: Easing.inOut(Easing.ease),
+          duration: 8000,
+          easing: Easing.linear,
           useNativeDriver: true,
         }),
         Animated.timing(tricycleAnim, {
@@ -155,18 +155,26 @@ export default function HomeScreen() {
         greeting: greeting.text,
         greetingIcon: greeting.icon,
         name: `${user.prenom || user.nom}`,
-        message: 'Ravi de vous revoir ! Que souhaitez-vous faire aujourd\'hui ?',
+        headline: 'Votre transport, en un clic',
+        subheadline: 'Déplacez-vous rapidement et en toute sécurité',
       };
     }
     return {
       greeting: greeting.text,
       greetingIcon: greeting.icon,
-      name: 'Bienvenue sur MESSAY',
-      message: 'Découvrez nos services de transport et bien plus encore',
+      name: '',
+      headline: 'Votre transport, en un clic',
+      subheadline: 'Déplacez-vous rapidement et en toute sécurité',
     };
   };
 
   const welcome = getWelcomeMessage();
+
+  const sellingPoints = [
+    { id: '1', icon: 'bolt', text: 'Rapide', color: '#FFB800' },
+    { id: '2', icon: 'shield-alt', text: 'Sécurisé', color: '#4CAF50' },
+    { id: '3', icon: 'clock', text: 'Disponible 24/7', color: '#2196F3' },
+  ];
 
   return (
     <View style={styles.container}>
@@ -241,23 +249,72 @@ export default function HomeScreen() {
           ]}
         >
           <View style={styles.greetingContainer}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
-              <FontAwesome5 name={welcome.greetingIcon} size={18} color="#FF6B35" style={{ marginRight: 8 }} />
-              <Text style={styles.greeting}>{welcome.greeting}</Text>
-            </View>
+            {user && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                <FontAwesome5 name={welcome.greetingIcon} size={16} color="#FF6B35" style={{ marginRight: 6 }} />
+                <Text style={styles.greeting}>{welcome.greeting}, {welcome.name}</Text>
+              </View>
+            )}
             <Animated.Text 
               style={[
-                styles.userName,
+                styles.heroHeadline,
                 {
                   transform: [{ translateX: slideAnim }],
                 },
               ]}
             >
-              {welcome.name}
+              {welcome.headline}
             </Animated.Text>
-            <Text style={styles.welcomeSubtext}>
-              {welcome.message}
+            <Text style={styles.heroSubheadline}>
+              {welcome.subheadline}
             </Text>
+
+            {/* CTA Button */}
+            <Animated.View
+              style={[
+                {
+                  transform: [{ scale: pulseAnim }],
+                },
+              ]}
+            >
+              <TouchableOpacity 
+                style={styles.ctaButton}
+                onPress={() => router.push('/(tabs)/tricycle')}
+                activeOpacity={0.8}
+              >
+                <FontAwesome5 name="motorcycle" size={20} color="#fff" style={{ marginRight: 10 }} />
+                <Text style={styles.ctaButtonText}>Réserver maintenant</Text>
+                <FontAwesome5 name="arrow-right" size={16} color="#fff" style={{ marginLeft: 10 }} />
+              </TouchableOpacity>
+            </Animated.View>
+
+            {/* Selling Points */}
+            <View style={styles.sellingPointsContainer}>
+              {sellingPoints.map((point, index) => (
+                <Animated.View
+                  key={point.id}
+                  style={[
+                    styles.sellingPoint,
+                    {
+                      opacity: fadeAnim,
+                      transform: [
+                        {
+                          translateY: slideAnim.interpolate({
+                            inputRange: [0, 50],
+                            outputRange: [0, 20 + index * 5],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  <View style={[styles.sellingPointIcon, { backgroundColor: point.color + '20' }]}>
+                    <FontAwesome5 name={point.icon} size={16} color={point.color} />
+                  </View>
+                  <Text style={styles.sellingPointText}>{point.text}</Text>
+                </Animated.View>
+              ))}
+            </View>
           </View>
 
           {/* Tricycle animé avec effets */}
@@ -266,15 +323,7 @@ export default function HomeScreen() {
               style={[
                 styles.tricycleContainer,
                 {
-                  transform: [
-                    { translateX: tricycleAnim },
-                    {
-                      rotate: tricycleAnim.interpolate({
-                        inputRange: [-100, width + 50],
-                        outputRange: ['0deg', '360deg'],
-                      }),
-                    },
-                  ],
+                  transform: [{ translateX: tricycleAnim }],
                 },
               ]}
             >
@@ -337,42 +386,49 @@ export default function HomeScreen() {
             <Text style={styles.sectionTitle}>Nos Services</Text>
             <Text style={styles.sectionSubtitle}>Choisissez votre service</Text>
           </Animated.View>
-          <View style={styles.servicesGrid}>
-            {services.map((service, index) => (
+          <FlatList
+            data={services}
+            numColumns={2}
+            keyExtractor={(item) => item.id}
+            scrollEnabled={false}
+            columnWrapperStyle={styles.servicesRow}
+            renderItem={({ item, index }) => (
               <Animated.View
-                key={service.id}
-                style={{
-                  opacity: fadeAnim,
-                  transform: [
-                    {
-                      translateY: slideAnim.interpolate({
-                        inputRange: [0, 50],
-                        outputRange: [0, 50 + index * 10],
-                      }),
-                    },
-                    { scale: scaleAnim },
-                  ],
-                }}
+                style={[
+                  styles.serviceCardWrapper,
+                  {
+                    opacity: fadeAnim,
+                    transform: [
+                      {
+                        translateY: slideAnim.interpolate({
+                          inputRange: [0, 50],
+                          outputRange: [0, 50 + index * 10],
+                        }),
+                      },
+                      { scale: scaleAnim },
+                    ],
+                  },
+                ]}
               >
                 <TouchableOpacity
                   style={styles.serviceCard}
                   onPress={() => {
-                    if (service.id === 'tricycle') router.push('/(tabs)/tricycle');
-                    if (service.id === 'transport') router.push('/(tabs)/tickets');
-                    if (service.id === 'events') router.push('/(tabs)/tickets');
-                    if (service.id === 'btp') router.push('/(tabs)/btp');
+                    if (item.id === 'tricycle') router.push('/(tabs)/tricycle');
+                    if (item.id === 'transport') router.push('/(tabs)/tickets');
+                    if (item.id === 'events') router.push('/(tabs)/tickets');
+                    if (item.id === 'btp') router.push('/(tabs)/btp');
                   }}
                   activeOpacity={0.7}
                 >
                   <View style={styles.serviceIconContainer}>
-                    <FontAwesome5 name={service.icon} size={36} color="#FF6B35" />
+                    <FontAwesome5 name={item.icon} size={32} color="#FF6B35" />
                   </View>
-                  <Text style={styles.serviceTitle}>{service.title}</Text>
-                  <Text style={styles.serviceDescription}>{service.description}</Text>
+                  <Text style={styles.serviceTitle} numberOfLines={1}>{item.title}</Text>
+                  <Text style={styles.serviceDescription} numberOfLines={2}>{item.description}</Text>
                 </TouchableOpacity>
               </Animated.View>
-            ))}
-          </View>
+            )}
+          />
         </View>
 
         {/* Promotions avec animation */}
@@ -515,8 +571,8 @@ const styles = StyleSheet.create({
   welcomeSection: {
     backgroundColor: '#fff',
     paddingHorizontal: 20,
-    paddingTop: 25,
-    paddingBottom: 20,
+    paddingTop: 20,
+    paddingBottom: 15,
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
     shadowColor: '#000',
@@ -526,30 +582,79 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   greetingContainer: {
-    marginBottom: 20,
+    marginBottom: 15,
   },
   greeting: {
-    fontSize: 18,
+    fontSize: 15,
     color: '#666',
-    marginBottom: 5,
+    fontWeight: '500',
   },
-  userName: {
-    fontSize: 32,
+  heroHeadline: {
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 10,
+    marginBottom: 8,
+    lineHeight: 34,
   },
-  welcomeSubtext: {
+  heroSubheadline: {
     fontSize: 15,
     color: '#888',
     lineHeight: 22,
-    marginTop: 5,
+    marginBottom: 20,
+  },
+  ctaButton: {
+    backgroundColor: '#FF6B35',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 30,
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+    marginBottom: 20,
+  },
+  ctaButtonText: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: 'bold',
+  },
+  sellingPointsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 15,
+  },
+  sellingPoint: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    marginHorizontal: 4,
+  },
+  sellingPointIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  sellingPointText: {
+    fontSize: 11,
+    color: '#333',
+    fontWeight: '600',
+    textAlign: 'center',
   },
   animationContainer: {
-    height: 80,
+    height: 70,
     position: 'relative',
     overflow: 'hidden',
-    marginTop: 10,
+    marginTop: 5,
   },
   tricycleContainer: {
     position: 'absolute',
@@ -601,9 +706,10 @@ const styles = StyleSheet.create({
   servicesContainer: {
     paddingHorizontal: 20,
     paddingTop: 25,
+    paddingBottom: 10,
   },
   sectionHeader: {
-    marginBottom: 20,
+    marginBottom: 15,
   },
   sectionTitle: {
     fontSize: 24,
@@ -615,46 +721,49 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#888',
   },
-  servicesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  servicesRow: {
     justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  serviceCardWrapper: {
+    width: (width - 52) / 2,
   },
   serviceCard: {
-    width: '48%',
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 20,
-    marginBottom: 15,
+    padding: 16,
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 5,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 3,
     borderWidth: 1,
     borderColor: '#f0f0f0',
+    height: 160,
+    justifyContent: 'center',
   },
   serviceIconContainer: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: '#FFF5F2',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   serviceTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 6,
+    marginBottom: 4,
     color: '#333',
+    textAlign: 'center',
   },
   serviceDescription: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#888',
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 16,
   },
   promoSection: {
     paddingHorizontal: 20,

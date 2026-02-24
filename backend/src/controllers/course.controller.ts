@@ -143,7 +143,6 @@ export class CourseController {
       res.status(500).json({ error: error.message });
     }
   }
-}
 
   /**
    * GET /api/courses/conducteur/mes-courses - Obtenir les courses du conducteur

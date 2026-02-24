@@ -368,7 +368,6 @@ export class CourseService {
 
     return stats;
   }
-}
 
   /**
    * Obtenir les courses d'un conducteur

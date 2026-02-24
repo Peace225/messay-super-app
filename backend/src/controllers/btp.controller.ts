@@ -187,7 +187,6 @@ export class BTPController {
       res.status(500).json({ error: error.message });
     }
   }
-}
 
   /**
    * GET /api/btp/chauffeur/mes-livraisons - Obtenir les livraisons du chauffeur

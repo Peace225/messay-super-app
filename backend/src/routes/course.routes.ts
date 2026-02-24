@@ -352,3 +352,79 @@ router.post('/:id/complete', (req, res) => courseController.completeCourse(req, 
 router.post('/:id/rate', (req, res) => courseController.rateCourse(req, res));
 
 export default router;
+
+/**
+ * @swagger
+ * /api/courses/conducteur/mes-courses:
+ *   get:
+ *     summary: Obtenir les courses du conducteur connecté
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Liste des courses du conducteur
+ *       401:
+ *         description: Non authentifié
+ */
+router.get('/conducteur/mes-courses', (req, res) => courseController.getConducteurCourses(req, res));
+
+/**
+ * @swagger
+ * /api/courses/{id}/accepter:
+ *   patch:
+ *     summary: Accepter une course (conducteur)
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Course acceptée
+ */
+router.patch('/:id/accepter', (req, res) => courseController.accepterCourse(req, res));
+
+/**
+ * @swagger
+ * /api/courses/{id}/demarrer:
+ *   patch:
+ *     summary: Démarrer une course (conducteur)
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Course démarrée
+ */
+router.patch('/:id/demarrer', (req, res) => courseController.demarrerCourse(req, res));
+
+/**
+ * @swagger
+ * /api/courses/{id}/terminer:
+ *   patch:
+ *     summary: Terminer une course (conducteur)
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Course terminée
+ */
+router.patch('/:id/terminer', (req, res) => courseController.terminerCourse(req, res));

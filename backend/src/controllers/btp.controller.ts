@@ -1,10 +1,17 @@
 import { Request, Response } from 'express';
 import prisma from '../config/database';
+import { BTPService } from '../services/btp.service';
 
 /**
  * Contrôleur pour la gestion des commandes BTP/Carrière
  */
 export class BTPController {
+  private btpService: BTPService;
+
+  constructor() {
+    this.btpService = new BTPService();
+  }
+
   /**
    * POST /api/btp/commandes
    * Créer une nouvelle commande BTP
@@ -180,4 +187,56 @@ export class BTPController {
       res.status(500).json({ error: error.message });
     }
   }
+}
+
+  /**
+   * GET /api/btp/chauffeur/mes-livraisons - Obtenir les livraisons du chauffeur
+   */
+  getChauffeurLivraisons = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const livraisons = await this.btpService.getChauffeurLivraisons(req.userId!);
+      res.status(200).json(livraisons);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  /**
+   * PATCH /api/btp/:id/accepter - Accepter une livraison
+   */
+  accepterLivraison = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const livraison = await this.btpService.accepterLivraison(id, req.userId!);
+      res.status(200).json({ message: 'Livraison acceptée', livraison });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  };
+
+  /**
+   * PATCH /api/btp/:id/en-route - Marquer en route
+   */
+  enRouteLivraison = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const livraison = await this.btpService.enRouteLivraison(id, req.userId!);
+      res.status(200).json({ message: 'Livraison en route', livraison });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  };
+
+  /**
+   * PATCH /api/btp/:id/livree - Marquer comme livrée
+   */
+  livreeLivraison = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const livraison = await this.btpService.livreeLivraison(id, req.userId!);
+      res.status(200).json({ message: 'Livraison terminée', livraison });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  };
 }

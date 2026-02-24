@@ -124,3 +124,77 @@ router.get('/commandes/:id', authenticate, btpController.getCommandeById);
 router.patch('/commandes/:id/annuler', authenticate, btpController.annulerCommande);
 
 export default router;
+
+/**
+ * @swagger
+ * /api/btp/chauffeur/mes-livraisons:
+ *   get:
+ *     summary: Obtenir les livraisons du chauffeur connecté
+ *     tags: [BTP]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Liste des livraisons du chauffeur
+ */
+router.get('/chauffeur/mes-livraisons', authenticate, btpController.getChauffeurLivraisons);
+
+/**
+ * @swagger
+ * /api/btp/{id}/accepter:
+ *   patch:
+ *     summary: Accepter une livraison (chauffeur)
+ *     tags: [BTP]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Livraison acceptée
+ */
+router.patch('/:id/accepter', authenticate, btpController.accepterLivraison);
+
+/**
+ * @swagger
+ * /api/btp/{id}/en-route:
+ *   patch:
+ *     summary: Marquer une livraison en route (chauffeur)
+ *     tags: [BTP]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Livraison en route
+ */
+router.patch('/:id/en-route', authenticate, btpController.enRouteLivraison);
+
+/**
+ * @swagger
+ * /api/btp/{id}/livree:
+ *   patch:
+ *     summary: Marquer une livraison comme livrée (chauffeur)
+ *     tags: [BTP]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Livraison terminée
+ */
+router.patch('/:id/livree', authenticate, btpController.livreeLivraison);

@@ -144,3 +144,55 @@ export class CourseController {
     }
   }
 }
+
+  /**
+   * GET /api/courses/conducteur/mes-courses - Obtenir les courses du conducteur
+   */
+  async getConducteurCourses(req: Request, res: Response): Promise<void> {
+    try {
+      const courses = await courseService.getConducteurCourses(req.userId!);
+      res.status(200).json(courses);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  /**
+   * PATCH /api/courses/:id/accepter - Accepter une course
+   */
+  async accepterCourse(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const course = await courseService.accepterCourse(id, req.userId!);
+      res.status(200).json({ message: 'Course acceptée', course });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  /**
+   * PATCH /api/courses/:id/demarrer - Démarrer une course
+   */
+  async demarrerCourse(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const course = await courseService.demarrerCourse(id, req.userId!);
+      res.status(200).json({ message: 'Course démarrée', course });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  /**
+   * PATCH /api/courses/:id/terminer - Terminer une course
+   */
+  async terminerCourse(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const course = await courseService.terminerCourse(id, req.userId!);
+      res.status(200).json({ message: 'Course terminée', course });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+}

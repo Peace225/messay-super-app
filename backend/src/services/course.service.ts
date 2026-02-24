@@ -369,3 +369,196 @@ export class CourseService {
     return stats;
   }
 }
+
+  /**
+   * Obtenir les courses d'un conducteur
+   */
+  async getConducteurCourses(userId: string) {
+    // Trouver le conducteur
+    const conducteur = await prisma.conducteur.findUnique({
+      where: { userId },
+    });
+
+    if (!conducteur) {
+      throw new Error('Conducteur non trouvé');
+    }
+
+    // Récupérer les courses du conducteur
+    const courses = await prisma.course.findMany({
+      where: {
+        conducteurId: conducteur.id,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            nom: true,
+            prenom: true,
+            telephone: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return courses;
+  }
+
+  /**
+   * Accepter une course
+   */
+  async accepterCourse(courseId: string, userId: string) {
+    // Trouver le conducteur
+    const conducteur = await prisma.conducteur.findUnique({
+      where: { userId },
+    });
+
+    if (!conducteur) {
+      throw new Error('Conducteur non trouvé');
+    }
+
+    // Vérifier que la course existe et est en attente
+    const course = await prisma.course.findUnique({
+      where: { id: courseId },
+    });
+
+    if (!course) {
+      throw new Error('Course non trouvée');
+    }
+
+    if (course.statut !== 'EN_ATTENTE') {
+      throw new Error('Cette course ne peut plus être acceptée');
+    }
+
+    // Mettre à jour la course
+    const updatedCourse = await prisma.course.update({
+      where: { id: courseId },
+      data: {
+        conducteurId: conducteur.id,
+        statut: 'ACCEPTEE',
+      },
+      include: {
+        user: true,
+        conducteur: {
+          include: {
+            user: true,
+          },
+        },
+      },
+    });
+
+    return updatedCourse;
+  }
+
+  /**
+   * Démarrer une course
+   */
+  async demarrerCourse(courseId: string, userId: string) {
+    // Trouver le conducteur
+    const conducteur = await prisma.conducteur.findUnique({
+      where: { userId },
+    });
+
+    if (!conducteur) {
+      throw new Error('Conducteur non trouvé');
+    }
+
+    // Vérifier que la course existe et est acceptée
+    const course = await prisma.course.findUnique({
+      where: { id: courseId },
+    });
+
+    if (!course) {
+      throw new Error('Course non trouvée');
+    }
+
+    if (course.conducteurId !== conducteur.id) {
+      throw new Error('Vous n\'êtes pas le conducteur de cette course');
+    }
+
+    if (course.statut !== 'ACCEPTEE') {
+      throw new Error('Cette course ne peut pas être démarrée');
+    }
+
+    // Mettre à jour la course
+    const updatedCourse = await prisma.course.update({
+      where: { id: courseId },
+      data: {
+        statut: 'EN_COURS',
+        heureDebut: new Date(),
+      },
+      include: {
+        user: true,
+        conducteur: {
+          include: {
+            user: true,
+          },
+        },
+      },
+    });
+
+    return updatedCourse;
+  }
+
+  /**
+   * Terminer une course
+   */
+  async terminerCourse(courseId: string, userId: string) {
+    // Trouver le conducteur
+    const conducteur = await prisma.conducteur.findUnique({
+      where: { userId },
+    });
+
+    if (!conducteur) {
+      throw new Error('Conducteur non trouvé');
+    }
+
+    // Vérifier que la course existe et est en cours
+    const course = await prisma.course.findUnique({
+      where: { id: courseId },
+    });
+
+    if (!course) {
+      throw new Error('Course non trouvée');
+    }
+
+    if (course.conducteurId !== conducteur.id) {
+      throw new Error('Vous n\'êtes pas le conducteur de cette course');
+    }
+
+    if (course.statut !== 'EN_COURS') {
+      throw new Error('Cette course ne peut pas être terminée');
+    }
+
+    // Mettre à jour la course
+    const updatedCourse = await prisma.course.update({
+      where: { id: courseId },
+      data: {
+        statut: 'TERMINEE',
+        heureFin: new Date(),
+      },
+      include: {
+        user: true,
+        conducteur: {
+          include: {
+            user: true,
+          },
+        },
+      },
+    });
+
+    // Mettre à jour les statistiques du conducteur
+    await prisma.conducteur.update({
+      where: { id: conducteur.id },
+      data: {
+        nombreCourses: {
+          increment: 1,
+        },
+      },
+    });
+
+    return updatedCourse;
+  }
+}

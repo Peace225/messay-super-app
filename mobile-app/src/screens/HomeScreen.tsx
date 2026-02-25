@@ -415,7 +415,7 @@ export default function HomeScreen() {
                   onPress={() => {
                     if (item.id === 'tricycle') router.push('/(tabs)/tricycle');
                     if (item.id === 'transport') router.push('/(tabs)/tickets');
-                    if (item.id === 'events') router.push('/(tabs)/tickets');
+                    if (item.id === 'events') router.push('/(tabs)/events');
                     if (item.id === 'btp') router.push('/(tabs)/btp');
                   }}
                   activeOpacity={0.7}

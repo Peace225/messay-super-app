@@ -110,7 +110,14 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="tickets"
         options={{
-          title: 'Tickets',
+          title: 'Transport',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 24 }}>🚌</Text>,
+        }}
+      />
+      <Tabs.Screen
+        name="events"
+        options={{
+          title: 'Événements',
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 24 }}>🎟️</Text>,
         }}
       />

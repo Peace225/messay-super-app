@@ -18,13 +18,14 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { courseService } from '../services/courseService';
 import { useAuthStore } from '../store/authStore';
 
-// Coordonnées de Songon, Côte d'Ivoire
-const SONGON_CENTER = {
-  latitude: 5.2897,
-  longitude: -4.2486,
+// Coordonnées du centre de la Côte d'Ivoire (Yamoussoukro)
+const COTE_IVOIRE_CENTER = {
+  latitude: 6.8270,
+  longitude: -5.2893,
 };
 
-const SONGON_RADIUS = 5000; // 5km de rayon
+// Rayon approximatif pour couvrir toute la Côte d'Ivoire (environ 400km)
+const COTE_IVOIRE_RADIUS = 400000; // 400km de rayon
 
 export default function TricycleScreen() {
   const router = useRouter();
@@ -41,14 +42,14 @@ export default function TricycleScreen() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission refusée', 'Autorisation de localisation requise');
-        // Utiliser la position par défaut de Songon
+        // Utiliser la position par défaut (centre de la Côte d'Ivoire)
         setLocation({
-          latitude: SONGON_CENTER.latitude,
-          longitude: SONGON_CENTER.longitude,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
+          latitude: COTE_IVOIRE_CENTER.latitude,
+          longitude: COTE_IVOIRE_CENTER.longitude,
+          latitudeDelta: 3.0,
+          longitudeDelta: 3.0,
         });
-        setDepartAdresse('Songon');
+        setDepartAdresse('Côte d\'Ivoire');
         return;
       }
 
@@ -56,27 +57,27 @@ export default function TricycleScreen() {
       const userLat = currentLocation.coords.latitude;
       const userLon = currentLocation.coords.longitude;
 
-      // Vérifier si l'utilisateur est dans la zone de Songon
+      // Vérifier si l'utilisateur est en Côte d'Ivoire
       const distance = getDistance(
         userLat,
         userLon,
-        SONGON_CENTER.latitude,
-        SONGON_CENTER.longitude
+        COTE_IVOIRE_CENTER.latitude,
+        COTE_IVOIRE_CENTER.longitude
       );
 
-      if (distance > SONGON_RADIUS) {
+      if (distance > COTE_IVOIRE_RADIUS) {
         Alert.alert(
           'Zone non couverte',
-          'Vous êtes en dehors de la zone de service Songon. La carte sera centrée sur Songon.',
+          'Vous êtes en dehors de la Côte d\'Ivoire. La carte sera centrée sur le pays.',
           [{ text: 'OK' }]
         );
         setLocation({
-          latitude: SONGON_CENTER.latitude,
-          longitude: SONGON_CENTER.longitude,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
+          latitude: COTE_IVOIRE_CENTER.latitude,
+          longitude: COTE_IVOIRE_CENTER.longitude,
+          latitudeDelta: 3.0,
+          longitudeDelta: 3.0,
         });
-        setDepartAdresse('Songon');
+        setDepartAdresse('Côte d\'Ivoire');
       } else {
         setLocation({
           latitude: userLat,
@@ -119,18 +120,18 @@ export default function TricycleScreen() {
   const handleMapPress = (event: any) => {
     const { coordinate } = event.nativeEvent;
     
-    // Vérifier si la destination est dans la zone de Songon
+    // Vérifier si la destination est en Côte d'Ivoire
     const distance = getDistance(
       coordinate.latitude,
       coordinate.longitude,
-      SONGON_CENTER.latitude,
-      SONGON_CENTER.longitude
+      COTE_IVOIRE_CENTER.latitude,
+      COTE_IVOIRE_CENTER.longitude
     );
 
-    if (distance > SONGON_RADIUS) {
+    if (distance > COTE_IVOIRE_RADIUS) {
       Alert.alert(
         'Zone non couverte',
-        'Veuillez sélectionner une destination dans la zone de Songon (rayon de 5km).'
+        'Veuillez sélectionner une destination en Côte d\'Ivoire.'
       );
       return;
     }
@@ -215,12 +216,12 @@ export default function TricycleScreen() {
         initialRegion={location}
         onPress={handleMapPress}
       >
-        {/* Zone de service Songon */}
+        {/* Zone de service Côte d'Ivoire */}
         <Circle
-          center={SONGON_CENTER}
-          radius={SONGON_RADIUS}
-          strokeColor="rgba(255, 107, 53, 0.5)"
-          fillColor="rgba(255, 107, 53, 0.1)"
+          center={COTE_IVOIRE_CENTER}
+          radius={COTE_IVOIRE_RADIUS}
+          strokeColor="rgba(255, 107, 53, 0.3)"
+          fillColor="rgba(255, 107, 53, 0.05)"
           strokeWidth={2}
         />
 
@@ -267,7 +268,7 @@ export default function TricycleScreen() {
         <View style={styles.header}>
           <Text style={styles.title}>Demander un Tricycle</Text>
           <Text style={styles.subtitle}>
-            {nearbyDrivers.length} conducteur(s) disponible(s) • Zone: Songon
+            {nearbyDrivers.length} conducteur(s) disponible(s) • Côte d'Ivoire
           </Text>
         </View>
 

@@ -27,7 +27,8 @@
     },
     "web": {},
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-build-properties"
     ],
     "scheme": "messay",
     "extra": {

@@ -8,17 +8,29 @@ import {
   ActivityIndicator,
   TextInput,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import MapView, { Marker, PROVIDER_GOOGLE, Circle } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { courseService } from '../services/courseService';
 import { useAuthStore } from '../store/authStore';
 
+// Coordonnées de Songon, Côte d'Ivoire
+const SONGON_CENTER = {
+  latitude: 5.2897,
+  longitude: -4.2486,
+};
+
+const SONGON_RADIUS = 5000; // 5km de rayon
+
 export default function TricycleScreen() {
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();
   const [location, setLocation] = useState<any>(null);
+  const [destination, setDestination] = useState<any>(null);
   const [departAdresse, setDepartAdresse] = useState('');
   const [destinationAdresse, setDestinationAdresse] = useState('');
   const [loading, setLoading] = useState(false);
@@ -29,24 +41,71 @@ export default function TricycleScreen() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission refusée', 'Autorisation de localisation requise');
+        // Utiliser la position par défaut de Songon
+        setLocation({
+          latitude: SONGON_CENTER.latitude,
+          longitude: SONGON_CENTER.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        });
+        setDepartAdresse('Songon');
         return;
       }
 
       const currentLocation = await Location.getCurrentPositionAsync({});
-      setLocation({
-        latitude: currentLocation.coords.latitude,
-        longitude: currentLocation.coords.longitude,
-      });
+      const userLat = currentLocation.coords.latitude;
+      const userLon = currentLocation.coords.longitude;
 
-      setDepartAdresse('Position actuelle');
+      // Vérifier si l'utilisateur est dans la zone de Songon
+      const distance = getDistance(
+        userLat,
+        userLon,
+        SONGON_CENTER.latitude,
+        SONGON_CENTER.longitude
+      );
+
+      if (distance > SONGON_RADIUS) {
+        Alert.alert(
+          'Zone non couverte',
+          'Vous êtes en dehors de la zone de service Songon. La carte sera centrée sur Songon.',
+          [{ text: 'OK' }]
+        );
+        setLocation({
+          latitude: SONGON_CENTER.latitude,
+          longitude: SONGON_CENTER.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        });
+        setDepartAdresse('Songon');
+      } else {
+        setLocation({
+          latitude: userLat,
+          longitude: userLon,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        });
+        setDepartAdresse('Position actuelle');
+      }
 
       // Charger les conducteurs à proximité
-      loadNearbyDrivers(
-        currentLocation.coords.latitude,
-        currentLocation.coords.longitude
-      );
+      loadNearbyDrivers(userLat, userLon);
     })();
   }, []);
+
+  const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371e3; // Rayon de la Terre en mètres
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c; // Distance en mètres
+  };
 
   const loadNearbyDrivers = async (lat: number, lon: number) => {
     try {
@@ -57,9 +116,37 @@ export default function TricycleScreen() {
     }
   };
 
+  const handleMapPress = (event: any) => {
+    const { coordinate } = event.nativeEvent;
+    
+    // Vérifier si la destination est dans la zone de Songon
+    const distance = getDistance(
+      coordinate.latitude,
+      coordinate.longitude,
+      SONGON_CENTER.latitude,
+      SONGON_CENTER.longitude
+    );
+
+    if (distance > SONGON_RADIUS) {
+      Alert.alert(
+        'Zone non couverte',
+        'Veuillez sélectionner une destination dans la zone de Songon (rayon de 5km).'
+      );
+      return;
+    }
+
+    setDestination(coordinate);
+    setDestinationAdresse('Destination sélectionnée sur la carte');
+  };
+
   const handleRequestCourse = async () => {
-    if (!location || !destinationAdresse.trim()) {
-      Alert.alert('Erreur', 'Veuillez entrer une adresse de destination');
+    if (!location) {
+      Alert.alert('Erreur', 'Position de départ non disponible');
+      return;
+    }
+
+    if (!destination && !destinationAdresse.trim()) {
+      Alert.alert('Erreur', 'Veuillez sélectionner une destination sur la carte ou entrer une adresse');
       return;
     }
 
@@ -80,10 +167,10 @@ export default function TricycleScreen() {
       const response = await courseService.createCourse({
         departLatitude: location.latitude,
         departLongitude: location.longitude,
-        departAdresse: departAdresse,
-        destinationLatitude: location.latitude + 0.01,
-        destinationLongitude: location.longitude + 0.01,
-        destinationAdresse: destinationAdresse,
+        departAdresse: departAdresse || 'Position actuelle',
+        destinationLatitude: destination?.latitude || location.latitude + 0.01,
+        destinationLongitude: destination?.longitude || location.longitude + 0.01,
+        destinationAdresse: destinationAdresse || 'Destination sélectionnée',
       });
 
       Alert.alert(
@@ -97,7 +184,9 @@ export default function TricycleScreen() {
           { text: 'OK' },
         ]
       );
-      
+
+      // Réinitialiser
+      setDestination(null);
       setDestinationAdresse('');
     } catch (error: any) {
       Alert.alert('Erreur', error.response?.data?.error || 'Erreur lors de la demande');
@@ -110,128 +199,204 @@ export default function TricycleScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#FF6B35" />
-        <Text style={styles.loadingText}>Chargement...</Text>
+        <Text style={styles.loadingText}>Chargement de la carte...</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Demander un Tricycle</Text>
-        <Text style={styles.subtitle}>
-          {nearbyDrivers.length} conducteur(s) disponible(s) à proximité
-        </Text>
-      </View>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <MapView
+        provider={PROVIDER_GOOGLE}
+        style={styles.map}
+        initialRegion={location}
+        onPress={handleMapPress}
+      >
+        {/* Zone de service Songon */}
+        <Circle
+          center={SONGON_CENTER}
+          radius={SONGON_RADIUS}
+          strokeColor="rgba(255, 107, 53, 0.5)"
+          fillColor="rgba(255, 107, 53, 0.1)"
+          strokeWidth={2}
+        />
 
-      <View style={styles.form}>
-        <View style={styles.inputContainer}>
-          <FontAwesome5 name="map-marker-alt" size={20} color="#4CAF50" style={styles.icon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Adresse de départ"
-            value={departAdresse}
-            onChangeText={setDepartAdresse}
-          />
-        </View>
-
-        <View style={styles.inputContainer}>
-          <FontAwesome5 name="flag-checkered" size={20} color="#F44336" style={styles.icon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Adresse de destination"
-            value={destinationAdresse}
-            onChangeText={setDestinationAdresse}
-          />
-        </View>
-
-        <TouchableOpacity
-          style={[styles.button, !destinationAdresse.trim() && styles.buttonDisabled]}
-          onPress={handleRequestCourse}
-          disabled={!destinationAdresse.trim() || loading}
+        {/* Position actuelle */}
+        <Marker 
+          coordinate={location} 
+          title="Vous êtes ici"
+          description={departAdresse}
         >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <>
-              <FontAwesome5 name="motorcycle" size={20} color="#fff" style={{ marginRight: 10 }} />
-              <Text style={styles.buttonText}>Demander une course</Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
+          <View style={styles.currentLocationMarker}>
+            <FontAwesome5 name="circle" size={20} color="#2196F3" />
+          </View>
+        </Marker>
 
-      {nearbyDrivers.length > 0 && (
-        <View style={styles.driversSection}>
-          <Text style={styles.sectionTitle}>Conducteurs à proximité</Text>
-          {nearbyDrivers.map((driver: any) => (
-            <View key={driver.id} style={styles.driverCard}>
-              <View style={styles.driverAvatar}>
-                <Text style={styles.driverAvatarText}>
-                  {driver.user.nom.charAt(0)}
-                </Text>
-              </View>
-              <View style={styles.driverInfo}>
-                <Text style={styles.driverName}>
-                  {driver.user.prenom} {driver.user.nom}
-                </Text>
-                <View style={styles.driverStats}>
-                  <FontAwesome5 name="star" size={12} color="#FFB800" />
-                  <Text style={styles.driverRating}>{driver.note}/5</Text>
-                  <Text style={styles.driverCourses}>
-                    • {driver.nombreCourses} courses
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.driverBadge}>
-                <Text style={styles.driverBadgeText}>
-                  {driver.statut === 'DISPONIBLE' ? 'Disponible' : 'Occupé'}
-                </Text>
-              </View>
+        {/* Destination */}
+        {destination && (
+          <Marker 
+            coordinate={destination} 
+            title="Destination"
+            description={destinationAdresse}
+            pinColor="red"
+          />
+        )}
+
+        {/* Conducteurs à proximité */}
+        {nearbyDrivers.map((driver: any) => (
+          <Marker
+            key={driver.id}
+            coordinate={{
+              latitude: driver.positionLatitude,
+              longitude: driver.positionLongitude,
+            }}
+            title={`${driver.user.prenom} ${driver.user.nom}`}
+            description={`Note: ${driver.note}/5 • ${driver.nombreCourses} courses`}
+          >
+            <View style={styles.driverMarker}>
+              <FontAwesome5 name="motorcycle" size={24} color="#FF6B35" />
             </View>
-          ))}
+          </Marker>
+        ))}
+      </MapView>
+
+      <ScrollView style={styles.infoPanel} keyboardShouldPersistTaps="handled">
+        <View style={styles.header}>
+          <Text style={styles.title}>Demander un Tricycle</Text>
+          <Text style={styles.subtitle}>
+            {nearbyDrivers.length} conducteur(s) disponible(s) • Zone: Songon
+          </Text>
         </View>
-      )}
-    </ScrollView>
+
+        <View style={styles.form}>
+          <View style={styles.inputContainer}>
+            <FontAwesome5 name="map-marker-alt" size={20} color="#4CAF50" style={styles.icon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Adresse de départ"
+              value={departAdresse}
+              onChangeText={setDepartAdresse}
+            />
+          </View>
+
+          <View style={styles.inputContainer}>
+            <FontAwesome5 name="flag-checkered" size={20} color="#F44336" style={styles.icon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Adresse de destination ou cliquez sur la carte"
+              value={destinationAdresse}
+              onChangeText={setDestinationAdresse}
+            />
+          </View>
+
+          <Text style={styles.hint}>
+            💡 Appuyez sur la carte pour sélectionner votre destination
+          </Text>
+
+          <TouchableOpacity
+            style={[styles.button, (!destination && !destinationAdresse.trim()) && styles.buttonDisabled]}
+            onPress={handleRequestCourse}
+            disabled={(!destination && !destinationAdresse.trim()) || loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <FontAwesome5 name="motorcycle" size={20} color="#fff" style={{ marginRight: 10 }} />
+                <Text style={styles.buttonText}>Demander une course</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+  },
+  map: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#f5f5f5',
   },
   loadingText: {
     marginTop: 10,
     fontSize: 16,
     color: '#666',
   },
-  header: {
+  currentLocationMarker: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#2196F3',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  driverMarker: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FF6B35',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  infoPanel: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    maxHeight: '50%',
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  header: {
     padding: 20,
-    paddingTop: 50,
+    paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
   title: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
     marginTop: 5,
   },
   form: {
-    backgroundColor: '#fff',
     padding: 20,
-    marginTop: 10,
   },
   inputContainer: {
     flexDirection: 'row',
@@ -239,7 +404,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
     borderRadius: 8,
     paddingHorizontal: 15,
-    marginBottom: 15,
+    marginBottom: 12,
   },
   icon: {
     marginRight: 10,
@@ -247,8 +412,14 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     paddingVertical: 15,
-    fontSize: 16,
+    fontSize: 15,
     color: '#333',
+  },
+  hint: {
+    fontSize: 12,
+    color: '#999',
+    marginBottom: 15,
+    fontStyle: 'italic',
   },
   button: {
     backgroundColor: '#FF6B35',
@@ -257,7 +428,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 10,
   },
   buttonDisabled: {
     backgroundColor: '#ccc',
@@ -265,73 +435,6 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: 'bold',
-  },
-  driversSection: {
-    backgroundColor: '#fff',
-    padding: 20,
-    marginTop: 10,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
-  },
-  driverCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 15,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  driverAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#FF6B35',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 15,
-  },
-  driverAvatarText: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  driverInfo: {
-    flex: 1,
-  },
-  driverName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 5,
-  },
-  driverStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  driverRating: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 5,
-  },
-  driverCourses: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 5,
-  },
-  driverBadge: {
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-  },
-  driverBadgeText: {
-    color: '#fff',
-    fontSize: 12,
     fontWeight: 'bold',
   },
 });

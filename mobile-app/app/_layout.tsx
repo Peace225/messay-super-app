@@ -13,7 +13,7 @@ export default function RootLayout() {
   }, []);
 
   if (isLoading) {
-    return null; // Ou un écran de chargement
+    return null;
   }
 
   return (

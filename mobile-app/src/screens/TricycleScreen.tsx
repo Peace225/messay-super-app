@@ -6,10 +6,12 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  TextInput,
+  ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
+import { FontAwesome5 } from '@expo/vector-icons';
 import { courseService } from '../services/courseService';
 import { useAuthStore } from '../store/authStore';
 
@@ -17,7 +19,8 @@ export default function TricycleScreen() {
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();
   const [location, setLocation] = useState<any>(null);
-  const [destination, setDestination] = useState<any>(null);
+  const [departAdresse, setDepartAdresse] = useState('');
+  const [destinationAdresse, setDestinationAdresse] = useState('');
   const [loading, setLoading] = useState(false);
   const [nearbyDrivers, setNearbyDrivers] = useState([]);
 
@@ -33,9 +36,9 @@ export default function TricycleScreen() {
       setLocation({
         latitude: currentLocation.coords.latitude,
         longitude: currentLocation.coords.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
       });
+
+      setDepartAdresse('Position actuelle');
 
       // Charger les conducteurs à proximité
       loadNearbyDrivers(
@@ -54,18 +57,12 @@ export default function TricycleScreen() {
     }
   };
 
-  const handleMapPress = (event: any) => {
-    const { coordinate } = event.nativeEvent;
-    setDestination(coordinate);
-  };
-
   const handleRequestCourse = async () => {
-    if (!location || !destination) {
-      Alert.alert('Erreur', 'Veuillez sélectionner une destination sur la carte');
+    if (!location || !destinationAdresse.trim()) {
+      Alert.alert('Erreur', 'Veuillez entrer une adresse de destination');
       return;
     }
 
-    // Vérifier si l'utilisateur est authentifié
     if (!isAuthenticated) {
       Alert.alert(
         'Connexion requise',
@@ -83,10 +80,10 @@ export default function TricycleScreen() {
       const response = await courseService.createCourse({
         departLatitude: location.latitude,
         departLongitude: location.longitude,
-        departAdresse: 'Position actuelle',
-        destinationLatitude: destination.latitude,
-        destinationLongitude: destination.longitude,
-        destinationAdresse: 'Destination sélectionnée',
+        departAdresse: departAdresse,
+        destinationLatitude: location.latitude + 0.01,
+        destinationLongitude: location.longitude + 0.01,
+        destinationAdresse: destinationAdresse,
       });
 
       Alert.alert(
@@ -94,14 +91,14 @@ export default function TricycleScreen() {
         `Prix estimé: ${response.course.prix} FCFA\n${response.message}`,
         [
           {
-            text: 'OK',
-            onPress: () => {
-              // Navigation vers le suivi de course (à implémenter)
-              router.back();
-            },
+            text: 'Voir mes courses',
+            onPress: () => router.push('/courses-historique' as any),
           },
+          { text: 'OK' },
         ]
       );
+      
+      setDestinationAdresse('');
     } catch (error: any) {
       Alert.alert('Erreur', error.response?.data?.error || 'Erreur lors de la demande');
     } finally {
@@ -113,74 +110,96 @@ export default function TricycleScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#FF6B35" />
-        <Text style={styles.loadingText}>Chargement de la carte...</Text>
+        <Text style={styles.loadingText}>Chargement...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <MapView
-        provider={PROVIDER_GOOGLE}
-        style={styles.map}
-        initialRegion={location}
-        onPress={handleMapPress}
-      >
-        {/* Position actuelle */}
-        <Marker coordinate={location} title="Vous êtes ici" pinColor="blue" />
-
-        {/* Destination */}
-        {destination && (
-          <Marker coordinate={destination} title="Destination" pinColor="red" />
-        )}
-
-        {/* Conducteurs à proximité */}
-        {nearbyDrivers.map((driver: any) => (
-          <Marker
-            key={driver.id}
-            coordinate={{
-              latitude: driver.positionLatitude,
-              longitude: driver.positionLongitude,
-            }}
-            title={`Conducteur ${driver.user.nom}`}
-            description={`Note: ${driver.note}/5`}
-          >
-            <Text style={styles.driverMarker}>🛺</Text>
-          </Marker>
-        ))}
-      </MapView>
-
-      <View style={styles.infoPanel}>
-        <Text style={styles.infoTitle}>Demander un tricycle</Text>
-        <Text style={styles.infoText}>
+    <ScrollView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Demander un Tricycle</Text>
+        <Text style={styles.subtitle}>
           {nearbyDrivers.length} conducteur(s) disponible(s) à proximité
         </Text>
-        <Text style={styles.infoHint}>
-          Appuyez sur la carte pour sélectionner votre destination
-        </Text>
+      </View>
+
+      <View style={styles.form}>
+        <View style={styles.inputContainer}>
+          <FontAwesome5 name="map-marker-alt" size={20} color="#4CAF50" style={styles.icon} />
+          <TextInput
+            style={styles.input}
+            placeholder="Adresse de départ"
+            value={departAdresse}
+            onChangeText={setDepartAdresse}
+          />
+        </View>
+
+        <View style={styles.inputContainer}>
+          <FontAwesome5 name="flag-checkered" size={20} color="#F44336" style={styles.icon} />
+          <TextInput
+            style={styles.input}
+            placeholder="Adresse de destination"
+            value={destinationAdresse}
+            onChangeText={setDestinationAdresse}
+          />
+        </View>
 
         <TouchableOpacity
-          style={[styles.button, !destination && styles.buttonDisabled]}
+          style={[styles.button, !destinationAdresse.trim() && styles.buttonDisabled]}
           onPress={handleRequestCourse}
-          disabled={!destination || loading}
+          disabled={!destinationAdresse.trim() || loading}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.buttonText}>Demander une course</Text>
+            <>
+              <FontAwesome5 name="motorcycle" size={20} color="#fff" style={{ marginRight: 10 }} />
+              <Text style={styles.buttonText}>Demander une course</Text>
+            </>
           )}
         </TouchableOpacity>
       </View>
-    </View>
+
+      {nearbyDrivers.length > 0 && (
+        <View style={styles.driversSection}>
+          <Text style={styles.sectionTitle}>Conducteurs à proximité</Text>
+          {nearbyDrivers.map((driver: any) => (
+            <View key={driver.id} style={styles.driverCard}>
+              <View style={styles.driverAvatar}>
+                <Text style={styles.driverAvatarText}>
+                  {driver.user.nom.charAt(0)}
+                </Text>
+              </View>
+              <View style={styles.driverInfo}>
+                <Text style={styles.driverName}>
+                  {driver.user.prenom} {driver.user.nom}
+                </Text>
+                <View style={styles.driverStats}>
+                  <FontAwesome5 name="star" size={12} color="#FFB800" />
+                  <Text style={styles.driverRating}>{driver.note}/5</Text>
+                  <Text style={styles.driverCourses}>
+                    • {driver.nombreCourses} courses
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.driverBadge}>
+                <Text style={styles.driverBadgeText}>
+                  {driver.statut === 'DISPONIBLE' ? 'Disponible' : 'Occupé'}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  map: {
-    flex: 1,
+    backgroundColor: '#f5f5f5',
   },
   loadingContainer: {
     flex: 1,
@@ -192,46 +211,53 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
-  driverMarker: {
-    fontSize: 30,
-  },
-  infoPanel: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+  header: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
     padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 5,
+    paddingTop: 50,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
   },
-  infoTitle: {
-    fontSize: 20,
+  title: {
+    fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 10,
     color: '#333',
   },
-  infoText: {
+  subtitle: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 5,
+    marginTop: 5,
   },
-  infoHint: {
-    fontSize: 12,
-    color: '#999',
+  form: {
+    backgroundColor: '#fff',
+    padding: 20,
+    marginTop: 10,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    paddingHorizontal: 15,
     marginBottom: 15,
-    fontStyle: 'italic',
+  },
+  icon: {
+    marginRight: 10,
+  },
+  input: {
+    flex: 1,
+    paddingVertical: 15,
+    fontSize: 16,
+    color: '#333',
   },
   button: {
     backgroundColor: '#FF6B35',
     padding: 15,
     borderRadius: 8,
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 10,
   },
   buttonDisabled: {
     backgroundColor: '#ccc',
@@ -239,6 +265,73 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#fff',
     fontSize: 16,
+    fontWeight: 'bold',
+  },
+  driversSection: {
+    backgroundColor: '#fff',
+    padding: 20,
+    marginTop: 10,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 15,
+  },
+  driverCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  driverAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#FF6B35',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  driverAvatarText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  driverInfo: {
+    flex: 1,
+  },
+  driverName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 5,
+  },
+  driverStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  driverRating: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 5,
+  },
+  driverCourses: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 5,
+  },
+  driverBadge: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  driverBadgeText: {
+    color: '#fff',
+    fontSize: 12,
     fontWeight: 'bold',
   },
 });

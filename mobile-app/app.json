@@ -4,13 +4,7 @@
     "slug": "messay-super-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FF6B35"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -22,7 +16,6 @@
       "package": "com.messay.app",
       "versionCode": 1,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FF6B35"
       },
       "permissions": [
@@ -42,7 +35,7 @@
         "origin": false
       },
       "eas": {
-        "projectId": "votre-project-id-ici"
+        "projectId": "441e60c6-bc1d-454e-aaa3-c9f2d73c4067"
       }
     }
   }

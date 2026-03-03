@@ -93,7 +93,32 @@ export default function TricycleScreen() {
           latitudeDelta: 0.05,
           longitudeDelta: 0.05,
         });
-        setDepartAdresse('Position actuelle');
+
+        // Obtenir l'adresse de la position actuelle
+        try {
+          const results = await Location.reverseGeocodeAsync({
+            latitude: userLat,
+            longitude: userLon,
+          });
+
+          if (results && results.length > 0) {
+            const address = results[0];
+            const formattedAddress = [
+              address.street,
+              address.district || address.subregion,
+              address.city,
+            ]
+              .filter(Boolean)
+              .join(', ');
+
+            setDepartAdresse(formattedAddress || 'Position actuelle');
+          } else {
+            setDepartAdresse('Position actuelle');
+          }
+        } catch (error) {
+          console.error('Erreur géocodage position:', error);
+          setDepartAdresse('Position actuelle');
+        }
 
         // Vérifier si la position actuelle est en zone interdite
         const restrictionCheck = isPointInRestrictedZone(userLat, userLon);
@@ -135,10 +160,10 @@ export default function TricycleScreen() {
     }
   };
 
-  const handleMapPress = (event: any) => {
+  const handleMapPress = async (event: any) => {
     const { coordinate } = event.nativeEvent;
     
-    // Vérifier si la destination est en Côte d'Ivoire
+    // Vérifier si le point est en Côte d'Ivoire
     const distance = getDistance(
       coordinate.latitude,
       coordinate.longitude,
@@ -154,7 +179,7 @@ export default function TricycleScreen() {
       return;
     }
 
-    // Vérifier si la destination est en zone interdite
+    // Vérifier si le point est en zone interdite
     const restrictionCheck = isPointInRestrictedZone(
       coordinate.latitude,
       coordinate.longitude
@@ -168,8 +193,102 @@ export default function TricycleScreen() {
       return;
     }
 
+    // Définir la destination
     setDestination(coordinate);
-    setDestinationAdresse('Destination sélectionnée sur la carte');
+    
+    // Obtenir l'adresse automatiquement
+    await getAddressFromCoordinates(coordinate.latitude, coordinate.longitude);
+  };
+
+  const getAddressFromCoordinates = async (latitude: number, longitude: number) => {
+    try {
+      const results = await Location.reverseGeocodeAsync({
+        latitude,
+        longitude,
+      });
+
+      if (results && results.length > 0) {
+        const address = results[0];
+        const formattedAddress = [
+          address.street,
+          address.district || address.subregion,
+          address.city,
+        ]
+          .filter(Boolean)
+          .join(', ');
+
+        setDestinationAdresse(formattedAddress || 'Destination sélectionnée');
+      } else {
+        setDestinationAdresse('Destination sélectionnée');
+      }
+    } catch (error) {
+      console.error('Erreur géocodage:', error);
+      setDestinationAdresse('Destination sélectionnée');
+    }
+  };
+
+  const getCoordinatesFromAddress = async (address: string, type: 'depart' | 'destination') => {
+    if (!address || address.trim().length < 3) return;
+
+    try {
+      const results = await Location.geocodeAsync(address);
+
+      if (results && results.length > 0) {
+        const coords = results[0];
+        
+        // Vérifier si les coordonnées sont en Côte d'Ivoire
+        const distance = getDistance(
+          coords.latitude,
+          coords.longitude,
+          COTE_IVOIRE_CENTER.latitude,
+          COTE_IVOIRE_CENTER.longitude
+        );
+
+        if (distance > COTE_IVOIRE_RADIUS) {
+          Alert.alert(
+            'Zone non couverte',
+            'Cette adresse semble être en dehors de la Côte d\'Ivoire.'
+          );
+          return;
+        }
+
+        // Vérifier les zones interdites
+        const restrictionCheck = isPointInRestrictedZone(coords.latitude, coords.longitude);
+        if (restrictionCheck.isRestricted && restrictionCheck.zone) {
+          Alert.alert(
+            '⚠️ Zone Interdite',
+            `Cette adresse (${restrictionCheck.zone.nom}) est une zone interdite aux tricycles.\n\nVeuillez choisir une autre adresse.`
+          );
+          return;
+        }
+
+        if (type === 'depart') {
+          setLocation({
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            latitudeDelta: 0.05,
+            longitudeDelta: 0.05,
+          });
+          loadNearbyDrivers(coords.latitude, coords.longitude);
+        } else {
+          setDestination({
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+          });
+        }
+      } else {
+        Alert.alert(
+          'Adresse introuvable',
+          'Impossible de localiser cette adresse. Essayez d\'être plus précis ou utilisez la carte.'
+        );
+      }
+    } catch (error) {
+      console.error('Erreur géocodage adresse:', error);
+      Alert.alert(
+        'Erreur',
+        'Impossible de localiser cette adresse. Veuillez utiliser la carte.'
+      );
+    }
   };
 
   const handleRequestCourse = async () => {
@@ -369,24 +488,44 @@ export default function TricycleScreen() {
             <FontAwesome5 name="map-marker-alt" size={20} color="#4CAF50" style={styles.icon} />
             <TextInput
               style={styles.input}
-              placeholder="Adresse de départ"
+              placeholder="Position actuelle (ou saisissez une adresse)"
               value={departAdresse}
               onChangeText={setDepartAdresse}
+              onSubmitEditing={() => getCoordinatesFromAddress(departAdresse, 'depart')}
+              returnKeyType="search"
             />
+            {departAdresse.length > 0 && (
+              <TouchableOpacity
+                style={styles.searchButton}
+                onPress={() => getCoordinatesFromAddress(departAdresse, 'depart')}
+              >
+                <FontAwesome5 name="search" size={16} color="#FF6B35" />
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.inputContainer}>
             <FontAwesome5 name="flag-checkered" size={20} color="#F44336" style={styles.icon} />
             <TextInput
               style={styles.input}
-              placeholder="Adresse de destination ou cliquez sur la carte"
+              placeholder="Destination (saisissez ou cliquez sur la carte)"
               value={destinationAdresse}
               onChangeText={setDestinationAdresse}
+              onSubmitEditing={() => getCoordinatesFromAddress(destinationAdresse, 'destination')}
+              returnKeyType="search"
             />
+            {destinationAdresse.length > 0 && (
+              <TouchableOpacity
+                style={styles.searchButton}
+                onPress={() => getCoordinatesFromAddress(destinationAdresse, 'destination')}
+              >
+                <FontAwesome5 name="search" size={16} color="#FF6B35" />
+              </TouchableOpacity>
+            )}
           </View>
 
           <Text style={styles.hint}>
-            💡 Appuyez sur la carte pour sélectionner votre destination
+            💡 Saisissez une adresse et appuyez sur 🔍, ou cliquez directement sur la carte
           </Text>
 
           <TouchableOpacity
@@ -533,6 +672,10 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     fontSize: 15,
     color: '#333',
+  },
+  searchButton: {
+    padding: 8,
+    marginLeft: 8,
   },
   hint: {
     fontSize: 12,

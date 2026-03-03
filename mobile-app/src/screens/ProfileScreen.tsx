@@ -15,6 +15,13 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { user, isAuthenticated, logout } = useAuthStore();
 
+  // Déterminer les accès selon le rôle
+  const userRole = user?.role || 'USER';
+  const isUser = userRole === 'USER';
+  const isConducteur = userRole === 'CONDUCTEUR';
+  const isChauffeur = userRole === 'CHAUFFEUR';
+  const isAdmin = userRole === 'ADMIN';
+
   const handleLogout = () => {
     Alert.alert(
       'Déconnexion',
@@ -88,15 +95,19 @@ export default function ProfileScreen() {
           <MaterialIcons name="chevron-right" size={24} color="#ccc" />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.menuItem}
-          onPress={() => router.push('/courses-historique' as any)}
-        >
-          <FontAwesome5 name="car" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
-          <Text style={styles.menuText}>Mes courses</Text>
-          <MaterialIcons name="chevron-right" size={24} color="#ccc" />
-        </TouchableOpacity>
+        {/* Mes courses - Accessible uniquement pour USER et CONDUCTEUR */}
+        {(isUser || isConducteur) && (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push('/courses-historique' as any)}
+          >
+            <FontAwesome5 name="car" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
+            <Text style={styles.menuText}>Mes courses</Text>
+            <MaterialIcons name="chevron-right" size={24} color="#ccc" />
+          </TouchableOpacity>
+        )}
 
+        {/* Moyens de paiement - Accessible pour tous */}
         <TouchableOpacity
           style={styles.menuItem}
           onPress={() => router.push('/paiement' as any)}
@@ -106,23 +117,50 @@ export default function ProfileScreen() {
           <MaterialIcons name="chevron-right" size={24} color="#ccc" />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.menuItem}
-          onPress={() => router.push('/tickets-historique' as any)}
-        >
-          <FontAwesome5 name="ticket-alt" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
-          <Text style={styles.menuText}>Mes tickets</Text>
-          <MaterialIcons name="chevron-right" size={24} color="#ccc" />
-        </TouchableOpacity>
+        {/* Mes tickets - Uniquement pour USER */}
+        {isUser ? (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push('/tickets-historique' as any)}
+          >
+            <FontAwesome5 name="ticket-alt" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
+            <Text style={styles.menuText}>Mes tickets</Text>
+            <MaterialIcons name="chevron-right" size={24} color="#ccc" />
+          </TouchableOpacity>
+        ) : (
+          <View style={[styles.menuItem, styles.menuItemDisabled]}>
+            <FontAwesome5 name="ticket-alt" size={20} color="#ccc" style={{ marginRight: 15 }} />
+            <Text style={[styles.menuText, styles.menuTextDisabled]}>Mes tickets</Text>
+            <FontAwesome5 name="lock" size={16} color="#ccc" />
+          </View>
+        )}
 
-        <TouchableOpacity
-          style={styles.menuItem}
-          onPress={() => router.push('/btp-historique' as any)}
-        >
-          <FontAwesome5 name="truck" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
-          <Text style={styles.menuText}>Mes commandes BTP</Text>
-          <MaterialIcons name="chevron-right" size={24} color="#ccc" />
-        </TouchableOpacity>
+        {/* Mes commandes BTP - Uniquement pour USER et CHAUFFEUR */}
+        {isUser ? (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push('/btp-historique' as any)}
+          >
+            <FontAwesome5 name="truck" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
+            <Text style={styles.menuText}>Mes commandes BTP</Text>
+            <MaterialIcons name="chevron-right" size={24} color="#ccc" />
+          </TouchableOpacity>
+        ) : isChauffeur ? (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push('/(tabs)/chauffeur-livraisons' as any)}
+          >
+            <FontAwesome5 name="truck" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
+            <Text style={styles.menuText}>Mes livraisons BTP</Text>
+            <MaterialIcons name="chevron-right" size={24} color="#ccc" />
+          </TouchableOpacity>
+        ) : (
+          <View style={[styles.menuItem, styles.menuItemDisabled]}>
+            <FontAwesome5 name="truck" size={20} color="#ccc" style={{ marginRight: 15 }} />
+            <Text style={[styles.menuText, styles.menuTextDisabled]}>Mes commandes BTP</Text>
+            <FontAwesome5 name="lock" size={16} color="#ccc" />
+          </View>
+        )}
       </View>
 
       <View style={styles.section}>
@@ -276,6 +314,13 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: '#333',
+  },
+  menuItemDisabled: {
+    opacity: 0.5,
+    backgroundColor: '#f9f9f9',
+  },
+  menuTextDisabled: {
+    color: '#999',
   },
   logoutButton: {
     backgroundColor: '#fff',

@@ -40,6 +40,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="tricycle" options={{ href: null }} />
         <Tabs.Screen name="tickets" options={{ href: null }} />
         <Tabs.Screen name="btp" options={{ href: null }} />
+        <Tabs.Screen name="events" options={{ href: null }} />
         <Tabs.Screen name="chauffeur-livraisons" options={{ href: null }} />
       </Tabs>
     );
@@ -79,6 +80,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="tricycle" options={{ href: null }} />
         <Tabs.Screen name="tickets" options={{ href: null }} />
         <Tabs.Screen name="btp" options={{ href: null }} />
+        <Tabs.Screen name="events" options={{ href: null }} />
         <Tabs.Screen name="conducteur-courses" options={{ href: null }} />
       </Tabs>
     );

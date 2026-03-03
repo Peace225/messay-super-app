@@ -10,13 +10,19 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import MapView, { Marker, PROVIDER_GOOGLE, Circle } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, Circle, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { courseService } from '../services/courseService';
 import { useAuthStore } from '../store/authStore';
+import {
+  RESTRICTED_ZONES,
+  isPointInRestrictedZone,
+  doesRouteIntersectRestrictedZone,
+} from '../config/restrictedZones';
 
 // Coordonnées du centre de la Côte d'Ivoire (Yamoussoukro)
 const COTE_IVOIRE_CENTER = {
@@ -36,6 +42,8 @@ export default function TricycleScreen() {
   const [destinationAdresse, setDestinationAdresse] = useState('');
   const [loading, setLoading] = useState(false);
   const [nearbyDrivers, setNearbyDrivers] = useState([]);
+  const [showRestrictedZoneModal, setShowRestrictedZoneModal] = useState(false);
+  const [restrictedZoneMessage, setRestrictedZoneMessage] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -86,6 +94,16 @@ export default function TricycleScreen() {
           longitudeDelta: 0.05,
         });
         setDepartAdresse('Position actuelle');
+
+        // Vérifier si la position actuelle est en zone interdite
+        const restrictionCheck = isPointInRestrictedZone(userLat, userLon);
+        if (restrictionCheck.isRestricted && restrictionCheck.zone) {
+          Alert.alert(
+            '⚠️ Zone Interdite',
+            `Vous êtes actuellement sur ${restrictionCheck.zone.nom}, une zone interdite aux tricycles.\n\n${restrictionCheck.zone.description}\n\nVous ne pouvez pas commander de tricycle depuis cette position.`,
+            [{ text: 'Compris' }]
+          );
+        }
       }
 
       // Charger les conducteurs à proximité
@@ -136,6 +154,20 @@ export default function TricycleScreen() {
       return;
     }
 
+    // Vérifier si la destination est en zone interdite
+    const restrictionCheck = isPointInRestrictedZone(
+      coordinate.latitude,
+      coordinate.longitude
+    );
+
+    if (restrictionCheck.isRestricted && restrictionCheck.zone) {
+      setRestrictedZoneMessage(
+        `⚠️ ZONE INTERDITE AUX TRICYCLES\n\n${restrictionCheck.zone.nom}\n\n${restrictionCheck.zone.description}\n\nSelon l'arrêté du Ministre-Gouverneur du District d'Abidjan, la circulation des tricycles est formellement interdite sur cette voie.\n\nVeuillez choisir une autre destination.`
+      );
+      setShowRestrictedZoneModal(true);
+      return;
+    }
+
     setDestination(coordinate);
     setDestinationAdresse('Destination sélectionnée sur la carte');
   };
@@ -151,6 +183,55 @@ export default function TricycleScreen() {
       return;
     }
 
+    // Vérifier si le départ est en zone interdite
+    const startRestriction = isPointInRestrictedZone(location.latitude, location.longitude);
+    if (startRestriction.isRestricted && startRestriction.zone) {
+      Alert.alert(
+        '⚠️ Départ en Zone Interdite',
+        `Votre position de départ (${startRestriction.zone.nom}) est une zone interdite aux tricycles.\n\nVous ne pouvez pas commander de tricycle depuis cette position.`,
+        [{ text: 'Compris' }]
+      );
+      return;
+    }
+
+    // Vérifier si la destination est en zone interdite
+    if (destination) {
+      const endRestriction = isPointInRestrictedZone(destination.latitude, destination.longitude);
+      if (endRestriction.isRestricted && endRestriction.zone) {
+        Alert.alert(
+          '⚠️ Destination en Zone Interdite',
+          `Votre destination (${endRestriction.zone.nom}) est une zone interdite aux tricycles.\n\nVeuillez choisir une autre destination.`,
+          [{ text: 'Compris' }]
+        );
+        return;
+      }
+
+      // Vérifier si le trajet traverse des zones interdites
+      const routeCheck = doesRouteIntersectRestrictedZone(
+        location.latitude,
+        location.longitude,
+        destination.latitude,
+        destination.longitude
+      );
+
+      if (routeCheck.intersects && routeCheck.zones.length > 0) {
+        const zoneNames = routeCheck.zones.map((z) => `• ${z.nom}`).join('\n');
+        Alert.alert(
+          '⚠️ Trajet Traversant des Zones Interdites',
+          `Attention! Votre trajet pourrait traverser les zones suivantes interdites aux tricycles:\n\n${zoneNames}\n\nLe conducteur devra emprunter un itinéraire alternatif, ce qui peut augmenter la durée et le prix du trajet.\n\nSouhaitez-vous continuer?`,
+          [
+            { text: 'Annuler', style: 'cancel' },
+            { text: 'Continuer', onPress: () => proceedWithBooking() },
+          ]
+        );
+        return;
+      }
+    }
+
+    await proceedWithBooking();
+  };
+
+  const proceedWithBooking = async () => {
     if (!isAuthenticated) {
       Alert.alert(
         'Connexion requise',
@@ -225,6 +306,17 @@ export default function TricycleScreen() {
           strokeWidth={2}
         />
 
+        {/* Zones interdites aux tricycles */}
+        {RESTRICTED_ZONES.map((zone) => (
+          <Polyline
+            key={zone.id}
+            coordinates={zone.coordinates}
+            strokeColor="rgba(255, 0, 0, 0.6)"
+            strokeWidth={4}
+            lineDashPattern={[10, 5]}
+          />
+        ))}
+
         {/* Position actuelle */}
         <Marker 
           coordinate={location} 
@@ -232,7 +324,7 @@ export default function TricycleScreen() {
           description={departAdresse}
         >
           <View style={styles.currentLocationMarker}>
-            <FontAwesome5 name="circle" size={20} color="#2196F3" />
+            <FontAwesome5 name="hand-paper" size={20} color="#2196F3" />
           </View>
         </Marker>
 
@@ -313,6 +405,32 @@ export default function TricycleScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Modal Zone Interdite */}
+      <Modal
+        visible={showRestrictedZoneModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowRestrictedZoneModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <FontAwesome5 name="exclamation-triangle" size={40} color="#FF3B30" />
+            </View>
+            <Text style={styles.modalTitle}>Zone Interdite</Text>
+            <ScrollView style={styles.modalScroll}>
+              <Text style={styles.modalText}>{restrictedZoneMessage}</Text>
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => setShowRestrictedZoneModal(false)}
+            >
+              <Text style={styles.modalButtonText}>Compris</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -434,6 +552,58 @@ const styles = StyleSheet.create({
     backgroundColor: '#ccc',
   },
   buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 25,
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#FF3B30',
+    textAlign: 'center',
+    marginBottom: 15,
+  },
+  modalScroll: {
+    maxHeight: 300,
+    marginBottom: 20,
+  },
+  modalText: {
+    fontSize: 15,
+    color: '#333',
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  modalButton: {
+    backgroundColor: '#FF3B30',
+    paddingVertical: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  modalButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',

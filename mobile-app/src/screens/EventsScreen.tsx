@@ -8,6 +8,7 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  TextInput,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
@@ -32,7 +33,7 @@ const EVENTS = [
     adresse: 'Plateau, Abidjan',
     prix: 5000,
     placesDisponibles: 450,
-    image: '🎤',
+    image: 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?w=800',
     description: 'Grande soirée zouglou avec les meilleurs artistes ivoiriens',
   },
   {
@@ -44,7 +45,7 @@ const EVENTS = [
     adresse: 'Plateau, Abidjan',
     prix: 2000,
     placesDisponibles: 8000,
-    image: '⚽',
+    image: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800',
     description: 'Derby abidjanais au stade Félix Houphouët-Boigny',
   },
   {
@@ -56,7 +57,7 @@ const EVENTS = [
     adresse: 'Anoumabo, Abidjan',
     prix: 3000,
     placesDisponibles: 2000,
-    image: '🎭',
+    image: 'https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?w=800',
     description: 'Festival des Musiques Urbaines d\'Anoumabo',
   },
   {
@@ -68,8 +69,32 @@ const EVENTS = [
     adresse: 'Treichville, Abidjan',
     prix: 4000,
     placesDisponibles: 300,
-    image: '🎭',
+    image: 'https://images.unsplash.com/photo-1503095396549-807759245b35?w=800',
     description: 'Comédie hilarante sur les traditions du mariage',
+  },
+  {
+    id: '5',
+    titre: 'Concert Afrobeat Live',
+    categorie: 'CONCERT',
+    date: '2026-03-28T21:00:00',
+    lieu: 'Ivoire Golf Club',
+    adresse: 'Cocody, Abidjan',
+    prix: 7500,
+    placesDisponibles: 600,
+    image: 'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800',
+    description: 'Soirée afrobeat avec DJ internationaux',
+  },
+  {
+    id: '6',
+    titre: 'Marathon d\'Abidjan',
+    categorie: 'SPORT',
+    date: '2026-04-05T07:00:00',
+    lieu: 'Boulevard VGE',
+    adresse: 'Marcory, Abidjan',
+    prix: 1500,
+    placesDisponibles: 3000,
+    image: 'https://images.unsplash.com/photo-1452626038306-9aae5e071dd3?w=800',
+    description: 'Course de 10km et 21km à travers Abidjan',
   },
 ];
 
@@ -78,6 +103,7 @@ export default function EventsScreen() {
   const { isAuthenticated } = useAuthStore();
   const [selectedCategorie, setSelectedCategorie] = useState<string>('all');
   const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const handleReserver = async (event: any) => {
     if (!isAuthenticated) {
@@ -101,9 +127,14 @@ export default function EventsScreen() {
     });
   };
 
-  const eventsFiltered = selectedCategorie === 'all'
-    ? EVENTS
-    : EVENTS.filter((e) => e.categorie === selectedCategorie);
+  const eventsFiltered = EVENTS.filter((event) => {
+    const matchCategorie = selectedCategorie === 'all' || event.categorie === selectedCategorie;
+    const matchSearch = searchQuery === '' || 
+      event.titre.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      event.lieu.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      event.description.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchCategorie && matchSearch;
+  });
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -128,6 +159,23 @@ export default function EventsScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Événements</Text>
         <Text style={styles.subtitle}>Concerts, sports, spectacles</Text>
+        
+        {/* Barre de recherche */}
+        <View style={styles.searchContainer}>
+          <FontAwesome5 name="search" size={16} color="#999" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Rechercher un événement..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor="#999"
+          />
+          {searchQuery !== '' && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <FontAwesome5 name="times-circle" size={16} color="#999" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Catégories */}
@@ -152,64 +200,80 @@ export default function EventsScreen() {
 
       {/* Événements */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Événements à venir</Text>
-        {eventsFiltered.map((event) => {
-          const categorie = CATEGORIES.find((c) => c.id === event.categorie);
-          return (
-            <View key={event.id} style={styles.eventCard}>
-              <View style={styles.eventImageContainer}>
-                <Text style={styles.eventImage}>{event.image}</Text>
-                <View style={[styles.categorieBadge, { backgroundColor: categorie?.couleur }]}>
-                  <Text style={styles.categorieBadgeText}>{categorie?.nom}</Text>
+        <Text style={styles.sectionTitle}>
+          {eventsFiltered.length} événement{eventsFiltered.length > 1 ? 's' : ''} trouvé{eventsFiltered.length > 1 ? 's' : ''}
+        </Text>
+        {eventsFiltered.length === 0 ? (
+          <View style={styles.emptyState}>
+            <FontAwesome5 name="calendar-times" size={48} color="#ccc" />
+            <Text style={styles.emptyStateText}>Aucun événement trouvé</Text>
+            <Text style={styles.emptyStateSubtext}>
+              Essayez de modifier vos critères de recherche
+            </Text>
+          </View>
+        ) : (
+          eventsFiltered.map((event) => {
+            const categorie = CATEGORIES.find((c) => c.id === event.categorie);
+            return (
+              <View key={event.id} style={styles.eventCard}>
+                <View style={styles.eventImageContainer}>
+                  <Image 
+                    source={{ uri: event.image }} 
+                    style={styles.eventImage}
+                    resizeMode="cover"
+                  />
+                  <View style={[styles.categorieBadge, { backgroundColor: categorie?.couleur }]}>
+                    <Text style={styles.categorieBadgeText}>{categorie?.nom}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.eventContent}>
+                  <Text style={styles.eventTitre}>{event.titre}</Text>
+                  <Text style={styles.eventDescription} numberOfLines={2}>
+                    {event.description}
+                  </Text>
+
+                  <View style={styles.eventInfo}>
+                    <View style={styles.eventInfoRow}>
+                      <FontAwesome5 name="calendar" size={14} color="#666" />
+                      <Text style={styles.eventInfoText}>
+                        {formatDate(event.date)} à {formatHeure(event.date)}
+                      </Text>
+                    </View>
+                    <View style={styles.eventInfoRow}>
+                      <FontAwesome5 name="map-marker-alt" size={14} color="#666" />
+                      <Text style={styles.eventInfoText}>{event.lieu}</Text>
+                    </View>
+                    <View style={styles.eventInfoRow}>
+                      <FontAwesome5 name="users" size={14} color="#666" />
+                      <Text style={styles.eventInfoText}>
+                        {event.placesDisponibles} places disponibles
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.eventFooter}>
+                    <Text style={styles.eventPrix}>{event.prix.toLocaleString()} FCFA</Text>
+                    <TouchableOpacity
+                      style={styles.reserverButton}
+                      onPress={() => handleReserver(event)}
+                      disabled={loading}
+                    >
+                      {loading ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <>
+                          <FontAwesome5 name="ticket-alt" size={14} color="#fff" style={{ marginRight: 8 }} />
+                          <Text style={styles.reserverButtonText}>Réserver</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
-
-              <View style={styles.eventContent}>
-                <Text style={styles.eventTitre}>{event.titre}</Text>
-                <Text style={styles.eventDescription} numberOfLines={2}>
-                  {event.description}
-                </Text>
-
-                <View style={styles.eventInfo}>
-                  <View style={styles.eventInfoRow}>
-                    <FontAwesome5 name="calendar" size={14} color="#666" />
-                    <Text style={styles.eventInfoText}>
-                      {formatDate(event.date)} à {formatHeure(event.date)}
-                    </Text>
-                  </View>
-                  <View style={styles.eventInfoRow}>
-                    <FontAwesome5 name="map-marker-alt" size={14} color="#666" />
-                    <Text style={styles.eventInfoText}>{event.lieu}</Text>
-                  </View>
-                  <View style={styles.eventInfoRow}>
-                    <FontAwesome5 name="users" size={14} color="#666" />
-                    <Text style={styles.eventInfoText}>
-                      {event.placesDisponibles} places disponibles
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.eventFooter}>
-                  <Text style={styles.eventPrix}>{event.prix.toLocaleString()} FCFA</Text>
-                  <TouchableOpacity
-                    style={styles.reserverButton}
-                    onPress={() => handleReserver(event)}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <>
-                        <FontAwesome5 name="ticket-alt" size={14} color="#fff" style={{ marginRight: 8 }} />
-                        <Text style={styles.reserverButtonText}>Réserver</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          );
-        })}
+            );
+          })
+        )}
       </View>
     </ScrollView>
   );
@@ -236,6 +300,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginTop: 5,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    marginTop: 15,
+    height: 45,
+  },
+  searchIcon: {
+    marginRight: 10,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#333',
   },
   section: {
     marginTop: 20,
@@ -280,13 +361,13 @@ const styles = StyleSheet.create({
   },
   eventImageContainer: {
     backgroundColor: '#f0f0f0',
-    height: 120,
-    justifyContent: 'center',
-    alignItems: 'center',
+    height: 180,
     position: 'relative',
+    overflow: 'hidden',
   },
   eventImage: {
-    fontSize: 64,
+    width: '100%',
+    height: '100%',
   },
   categorieBadge: {
     position: 'absolute',
@@ -354,5 +435,23 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 40,
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#999',
+    marginTop: 15,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: '#bbb',
+    marginTop: 8,
+    textAlign: 'center',
   },
 });

@@ -7,10 +7,13 @@ import {
   TouchableOpacity,
   RefreshControl,
   Alert,
+  Modal,
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useAuthStore } from '../store/authStore';
 import api from '../services/api';
+import * as Location from 'expo-location';
+import { isPointInRestrictedZone, RESTRICTED_ZONES } from '../config/restrictedZones';
 
 interface Course {
   id: string;
@@ -32,6 +35,45 @@ export default function ConducteurCoursesScreen() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showRestrictedZoneAlert, setShowRestrictedZoneAlert] = useState(false);
+  const [currentRestrictedZone, setCurrentRestrictedZone] = useState<string>('');
+
+  // Surveillance de la position en temps réel
+  useEffect(() => {
+    let locationSubscription: any;
+
+    const startLocationTracking = async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        locationSubscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            timeInterval: 5000, // Vérifier toutes les 5 secondes
+            distanceInterval: 50, // Ou tous les 50 mètres
+          },
+          (location) => {
+            const { latitude, longitude } = location.coords;
+            const restrictionCheck = isPointInRestrictedZone(latitude, longitude);
+            
+            if (restrictionCheck.isRestricted && restrictionCheck.zone) {
+              setCurrentRestrictedZone(
+                `⚠️ ATTENTION CONDUCTEUR!\n\nVous êtes actuellement sur:\n${restrictionCheck.zone.nom}\n\n${restrictionCheck.zone.description}\n\nCette voie est INTERDITE aux tricycles selon l'arrêté du Ministre-Gouverneur.\n\nVeuillez emprunter un itinéraire alternatif immédiatement pour éviter une amende.`
+              );
+              setShowRestrictedZoneAlert(true);
+            }
+          }
+        );
+      }
+    };
+
+    startLocationTracking();
+
+    return () => {
+      if (locationSubscription) {
+        locationSubscription.remove();
+      }
+    };
+  }, []);
 
   const fetchCourses = async () => {
     try {
@@ -202,6 +244,30 @@ export default function ConducteurCoursesScreen() {
           </View>
         }
       />
+
+      {/* Modal d'alerte zone interdite */}
+      <Modal
+        visible={showRestrictedZoneAlert}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowRestrictedZoneAlert(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <FontAwesome5 name="exclamation-triangle" size={50} color="#FF3B30" />
+            </View>
+            <Text style={styles.modalTitle}>ZONE INTERDITE!</Text>
+            <Text style={styles.modalText}>{currentRestrictedZone}</Text>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => setShowRestrictedZoneAlert(false)}
+            >
+              <Text style={styles.modalButtonText}>J'ai compris</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -334,5 +400,53 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#999',
     marginTop: 15,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 30,
+    width: '100%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FF3B30',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalText: {
+    fontSize: 16,
+    color: '#333',
+    lineHeight: 24,
+    textAlign: 'center',
+    marginBottom: 25,
+  },
+  modalButton: {
+    backgroundColor: '#FF3B30',
+    paddingVertical: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });

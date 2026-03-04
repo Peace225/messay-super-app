@@ -172,9 +172,36 @@ export default function ProfileScreen() {
           <MaterialIcons name="chevron-right" size={24} color="#ccc" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity 
+          style={styles.menuItem}
+          onPress={() => {
+            Alert.alert(
+              'Langue / Language',
+              'Sélectionnez votre langue préférée\nSelect your preferred language',
+              [
+                { 
+                  text: 'Français 🇫🇷', 
+                  onPress: () => {
+                    // TODO: Implémenter le changement de langue avec i18n
+                    Alert.alert('Langue', 'Français est déjà la langue par défaut');
+                  }
+                },
+                { 
+                  text: 'English 🇬🇧', 
+                  onPress: () => {
+                    Alert.alert(
+                      'Language', 
+                      'English language support will be available in a future update.\n\nLe support de la langue anglaise sera disponible dans une prochaine mise à jour.'
+                    );
+                  }
+                },
+                { text: 'Annuler / Cancel', style: 'cancel' },
+              ]
+            );
+          }}
+        >
           <FontAwesome5 name="globe" size={20} color="#FF6B35" style={{ marginRight: 15 }} />
-          <Text style={styles.menuText}>Langue</Text>
+          <Text style={styles.menuText}>Langue (Français 🇫🇷)</Text>
           <MaterialIcons name="chevron-right" size={24} color="#ccc" />
         </TouchableOpacity>
 

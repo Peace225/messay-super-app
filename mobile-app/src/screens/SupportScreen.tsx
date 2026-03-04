@@ -11,12 +11,14 @@ import {
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
 import { FontAwesome5 } from '@expo/vector-icons';
+import api from '../services/api';
 
 const TYPES_DEMANDE = [
-  { id: 'PROBLEME_TECHNIQUE', nom: 'Problème technique', icon: 'wrench' },
+  { id: 'TECHNIQUE', nom: 'Problème technique', icon: 'wrench' },
   { id: 'OBJET_PERDU', nom: 'Objet perdu', icon: 'search' },
   { id: 'LITIGE', nom: 'Litige', icon: 'balance-scale' },
   { id: 'QUESTION', nom: 'Question', icon: 'question-circle' },
+  { id: 'RECLAMATION', nom: 'Réclamation', icon: 'exclamation-triangle' },
   { id: 'AUTRE', nom: 'Autre', icon: 'comments' },
 ];
 
@@ -48,8 +50,16 @@ export default function SupportScreen() {
 
     setLoading(true);
 
-    // Simuler la création du ticket
-    setTimeout(() => {
+    try {
+      // Envoyer le ticket à l'API
+      const response = await api.post('/support/tickets', {
+        typeDemande: selectedType,
+        sujet: sujet.trim(),
+        message: description.trim(),
+      });
+
+      console.log('✅ Ticket créé:', response.data);
+
       setLoading(false);
       Alert.alert(
         'Ticket créé !',
@@ -61,11 +71,19 @@ export default function SupportScreen() {
               setSelectedType(null);
               setSujet('');
               setDescription('');
+              router.back();
             },
           },
         ]
       );
-    }, 1500);
+    } catch (error: any) {
+      setLoading(false);
+      console.error('❌ Erreur création ticket:', error);
+      Alert.alert(
+        'Erreur',
+        error.response?.data?.error || 'Impossible de créer le ticket. Veuillez réessayer.'
+      );
+    }
   };
 
   return (

@@ -10,15 +10,20 @@ export class SupportController {
    */
   async createTicket(req: Request, res: Response): Promise<void> {
     try {
-      const { typeDemande, sujet, description } = req.body;
+      const { typeDemande, sujet, message } = req.body;
       const userId = req.userId!;
+
+      if (!typeDemande || !sujet || !message) {
+        res.status(400).json({ error: 'Tous les champs sont requis' });
+        return;
+      }
 
       const ticket = await prisma.supportTicket.create({
         data: {
           userId,
           typeDemande,
           sujet,
-          description,
+          message,
           statut: 'OUVERT',
         },
         include: {
@@ -33,18 +38,19 @@ export class SupportController {
         },
       });
 
-      // Créer une notification pour l'admin
+      // Créer une notification pour l'utilisateur
       await prisma.notification.create({
         data: {
           userId: userId,
-          titre: 'Nouveau ticket de support',
-          message: `Ticket #${ticket.id.substring(0, 8)} créé: ${sujet}`,
+          titre: 'Ticket de support créé',
+          message: `Votre ticket #${ticket.id.substring(0, 8)} a été créé: ${sujet}`,
           type: 'SUPPORT',
         },
       });
 
-      res.status(201).json({ ticket });
+      res.status(201).json({ ticket, message: 'Ticket créé avec succès' });
     } catch (error: any) {
+      console.error('Erreur création ticket:', error);
       res.status(500).json({ error: error.message });
     }
   }

@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken } from '../utils/jwt';
-import prisma from '../config/database';
+import { UserRepository } from '../repositories/user.repository';
 
 /**
- * Middleware d'authentification JWT
+ * Middleware d'authentification JWT pour MESSAY
  */
 export const authenticate = async (
   req: Request,
@@ -14,34 +14,22 @@ export const authenticate = async (
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      res.status(401).json({ error: 'Token manquant ou invalide' });
+      res.status(401).json({ error: 'Token manquant ou format invalide (Bearer requis)' });
       return;
     }
 
     const token = authHeader.substring(7);
     const decoded = verifyAccessToken(token);
 
-    // Récupérer l'utilisateur depuis la base de données
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      select: {
-        id: true,
-        nom: true,
-        prenom: true,
-        email: true,
-        telephone: true,
-        role: true,
-        photo: true,
-        isVerified: true,
-      },
-    });
+    // RÉFÉRENCEMENT : Utilisation du Repository au lieu de Prisma direct
+    const user = await UserRepository.findById(decoded.userId);
 
     if (!user) {
-      res.status(401).json({ error: 'Utilisateur non trouvé' });
+      res.status(401).json({ error: 'Session invalide : utilisateur non trouvé' });
       return;
     }
 
-    // Attacher l'utilisateur à la requête
+    // Attacher les informations à la requête pour les controllers
     req.user = user as any;
     req.userId = user.id;
     req.userRole = user.role;
@@ -53,17 +41,17 @@ export const authenticate = async (
 };
 
 /**
- * Middleware de vérification des rôles
+ * Middleware de vérification des rôles (Admin, Conducteur, Chauffeur, etc.)
  */
 export const authorize = (...roles: string[]) => {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user) {
-      res.status(401).json({ error: 'Non authentifié' });
+    if (!req.user || !req.userRole) {
+      res.status(401).json({ error: 'Authentification requise pour vérifier les rôles' });
       return;
     }
 
-    if (!roles.includes(req.user.role)) {
-      res.status(403).json({ error: 'Accès refusé - Permissions insuffisantes' });
+    if (!roles.includes(req.userRole)) {
+      res.status(403).json({ error: `Accès refusé - Rôle ${req.userRole} non autorisé` });
       return;
     }
 

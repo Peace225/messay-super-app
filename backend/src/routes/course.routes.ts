@@ -1,84 +1,72 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { CourseController } from '../controllers/course.controller';
 import { authenticate } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { 
-  createCourseSchema, 
-  rateCourseSchema, 
-  updateCourseStatusSchema 
-} from '../validators';
+import { createCourseSchema, rateCourseSchema } from '../validators';
 
 const router = Router();
 const courseController = new CourseController();
 
-// Toutes les routes nécessitent une authentification
+// 🔒 Sécurité globale du routeur
 router.use(authenticate);
 
-/**
- * @swagger
- * /api/courses:
- * post:
- * summary: Créer une demande de course
- * tags: [Courses]
- * # ... (Swagger doc reste identique)
- */
-// AJOUT : Validation du schéma de création
-router.post('/', validate(createCourseSchema), (req, res) => courseController.createCourse(req, res));
+// ============================================================
+// 1. ROUTES DE RÉCUPÉRATION SPÉCIFIQUES (Radar & Livraisons)
+// ============================================================
 
-/**
- * @swagger
- * /api/courses:
- * get:
- * summary: Obtenir l'historique des courses
- * tags: [Courses]
- */
-router.get('/', (req, res) => courseController.getUserCourses(req, res));
+// 💡 On utilise "/mine/..." pour garantir qu'Express ne confonde JAMAIS avec un ID
+router.get('/mine/conducteur', (req: Request, res: Response) => 
+  courseController.getConducteurCourses(req, res)
+);
 
-/**
- * @swagger
- * /api/courses/nearby-drivers:
- * get:
- * summary: Trouver les conducteurs à proximité
- * tags: [Courses]
- */
-router.get('/nearby-drivers', (req, res) => courseController.findNearbyDrivers(req, res));
+router.get('/mine/chauffeur', (req: Request, res: Response) => 
+  courseController.getChauffeurLivraisons(req, res)
+);
 
-/**
- * @swagger
- * /api/courses/weekly-stats:
- * get:
- * summary: Obtenir les statistiques hebdomadaires
- * tags: [Courses]
- */
-router.get('/weekly-stats', (req, res) => courseController.getWeeklyStats(req, res));
+router.get('/nearby-drivers', (req: Request, res: Response) => 
+  courseController.findNearbyDrivers(req, res)
+);
 
-/**
- * @swagger
- * /api/courses/{id}:
- * get:
- * summary: Obtenir les détails d'une course
- */
-router.get('/:id', (req, res) => courseController.getCourseById(req, res));
+router.get('/weekly-stats', (req: Request, res: Response) => 
+  courseController.getWeeklyStats(req, res)
+);
 
-/**
- * @swagger
- * /api/courses/{id}/rate:
- * post:
- * summary: Noter une course
- * tags: [Courses]
- */
-// AJOUT : Validation de la note (1 à 5) et du commentaire
-router.post('/:id/rate', validate(rateCourseSchema), (req, res) => courseController.rateCourse(req, res));
 
-// ============================================
-// ROUTES CONDUCTEUR (PATCH pour le respect des standards REST)
-// ============================================
+// ============================================================
+// 2. ROUTES GÉNÉRALES (Historique & Création)
+// ============================================================
 
-router.get('/conducteur/mes-courses', (req, res) => courseController.getConducteurCourses(req, res));
+router.get('/', (req: Request, res: Response) => 
+  courseController.getUserCourses(req, res)
+);
 
-// Utilisation des PATCH car on modifie l'état de la ressource "Course"
-router.patch('/:id/accepter', (req, res) => courseController.accepterCourse(req, res));
-router.patch('/:id/demarrer', (req, res) => courseController.demarrerCourse(req, res));
-router.patch('/:id/terminer', (req, res) => courseController.terminerCourse(req, res));
+router.post('/', validate(createCourseSchema), (req: Request, res: Response) => 
+  courseController.createCourse(req, res)
+);
+
+
+// ============================================================
+// 3. ACTIONS & DÉTAILS (Routes avec :id TOUJOURS en dernier)
+// ============================================================
+
+router.get('/:id', (req: Request, res: Response) => 
+  courseController.getCourseById(req, res)
+);
+
+router.post('/:id/rate', validate(rateCourseSchema), (req: Request, res: Response) => 
+  courseController.rateCourse(req, res)
+);
+
+router.patch('/:id/accepter', (req: Request, res: Response) => 
+  courseController.accepterCourse(req, res)
+);
+
+router.patch('/:id/demarrer', (req: Request, res: Response) => 
+  courseController.demarrerCourse(req, res)
+);
+
+router.patch('/:id/terminer', (req: Request, res: Response) => 
+  courseController.terminerCourse(req, res)
+);
 
 export default router;

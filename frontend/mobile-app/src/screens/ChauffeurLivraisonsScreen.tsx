@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,298 +9,275 @@ import {
   Alert,
   StatusBar,
   Animated,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuthStore } from '../store/authStore';
 import api from '../services/api';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { io, Socket } from 'socket.io-client';
+
+const SOCKET_URL = 'http://192.168.1.7:5000';
 
 interface Livraison {
   id: string;
-  typeMateriau: string;
-  quantite: number;
-  unite: string;
-  adresseLivraison: string;
-  dateLivraison: string;
-  heurePreferee: string;
+  departAdresse: string; 
+  destinationAdresse: string; 
   prix: number;
-  statut: string;
-  user: {
-    nom: string;
-    prenom: string;
-    telephone: string;
-  };
-  camion?: {
-    type: string;
-    immatriculation: string;
-  };
+  statut: 'EN_ATTENTE' | 'ACCEPTEE' | 'EN_COURS' | 'TERMINEE' | 'ANNULEE';
+  user: { nom: string; prenom: string; telephone: string; };
+}
+
+interface WeeklyStats {
+  totalRevenus: number;
+  totalCourses: number;
 }
 
 export default function ChauffeurLivraisonsScreen() {
-  const { user } = useAuthStore();
+  const { user, logout, isAuthenticated, isLoading: authLoading } = useAuthStore();
+  const [activeTab, setActiveTab] = useState<'MISSIONS' | 'HISTORY' | 'PAYMENTS'>('MISSIONS');
   const [livraisons, setLivraisons] = useState<Livraison[]>([]);
+  const [stats, setStats] = useState<WeeklyStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  
+  const [isOnline, setIsOnline] = useState(true);
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const radarAnim = useRef(new Animated.Value(0)).current;
+  const onlinePulse = useRef(new Animated.Value(1)).current; // 🚩 Nouveau : Pulse pour le point vert
 
+  // 📡 1. RADAR SOCKET.IO
   useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 600,
-      useNativeDriver: true,
-    }).start();
-  }, []);
+    let socket: Socket | null = null;
+    if (!authLoading && isAuthenticated && isOnline) {
+      socket = io(SOCKET_URL);
+      socket.on('new-course-available', (newLivraison: Livraison) => {
+        setLivraisons(prev => [newLivraison, ...prev.filter(l => l.id !== newLivraison.id)]);
+      });
+    }
+    return () => { if (socket) socket.disconnect(); };
+  }, [authLoading, isAuthenticated, isOnline]);
 
-  const fetchLivraisons = async () => {
+  // 🌀 2. ANIMATIONS (Radar & Online Dot)
+  useEffect(() => {
+    if (isOnline) {
+      // Animation du radar
+      if (activeTab === 'MISSIONS' && livraisons.length === 0) {
+        radarAnim.setValue(0);
+        Animated.loop(Animated.timing(radarAnim, { toValue: 1, duration: 2000, useNativeDriver: true })).start();
+      }
+      // Animation du point "En ligne"
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(onlinePulse, { toValue: 0.3, duration: 800, useNativeDriver: true }),
+          Animated.timing(onlinePulse, { toValue: 1, duration: 800, useNativeDriver: true })
+        ])
+      ).start();
+    } else {
+      radarAnim.stopAnimation();
+      onlinePulse.setValue(1);
+    }
+  }, [isOnline, activeTab, livraisons]);
+
+  // 🛡️ 3. CHARGEMENT DONNÉES
+  useEffect(() => {
+    if (!authLoading && isAuthenticated) {
+      fetchData();
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }).start();
+    }
+  }, [authLoading, isAuthenticated]);
+
+  const fetchData = async () => {
     try {
-      const response = await api.get('/btp/chauffeur/mes-livraisons');
-      setLivraisons(response.data);
+      const [resLivraisons, resStats] = await Promise.all([
+        api.get('/courses/mine/chauffeur'),
+        api.get('/courses/weekly-stats')
+      ]);
+      setLivraisons(resLivraisons.data);
+      setStats(resStats.data);
     } catch (error) {
-      console.error('Erreur lors du chargement des livraisons:', error);
+      console.error('Erreur chargement Dashboard Ibrahim');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  useEffect(() => {
-    fetchLivraisons();
-  }, []);
+  const filteredData = useMemo(() => {
+    if (activeTab === 'MISSIONS') return livraisons.filter(l => ['EN_ATTENTE', 'ACCEPTEE', 'EN_COURS'].includes(l.statut));
+    if (activeTab === 'HISTORY') return livraisons.filter(l => ['TERMINEE', 'ANNULEE'].includes(l.statut));
+    return [];
+  }, [livraisons, activeTab]);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchLivraisons();
-  };
+  const typePermis = (user as any)?.permis || 'C';
+  const exp = (user as any)?.experience || '8 ans';
+  const totalBons = stats?.totalCourses || 0;
+  const defaultAvatar = "https://images.unsplash.com/photo-1504328345606-18bbc8c9d7d1?q=80&w=150";
 
-  const handleAction = async (livraisonId: string, action: 'accepter' | 'en-route' | 'livree', message: string) => {
-    try {
-      await api.patch(`/btp/${livraisonId}/${action}`);
-      Alert.alert('Succès logistique 🏗️', message);
-      fetchLivraisons();
-    } catch (error) {
-      Alert.alert('Erreur', `Impossible d'effectuer l'action.`);
-    }
-  };
+  const renderLivraison = ({ item }: { item: Livraison }) => (
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        <Text style={styles.priceValue}>{item.prix.toLocaleString()} FCFA</Text>
+        <View style={styles.badgeBTP}><Text style={styles.badgeText}>BON BTP</Text></View>
+      </View>
+      <View style={styles.locBox}>
+        <View style={styles.locRow}><FontAwesome5 name="industry" size={12} color="#64748B" /><Text style={styles.locText}>{item.departAdresse}</Text></View>
+        <View style={styles.locRow}><FontAwesome5 name="hard-hat" size={12} color="#F59E0B" /><Text style={styles.locText}>{item.destinationAdresse}</Text></View>
+      </View>
+      <TouchableOpacity style={styles.btnAccept} onPress={() => Alert.alert("Action", "Accepter ce bon ?")}><Text style={styles.btnText}>ACCEPTER LE BON</Text></TouchableOpacity>
+    </View>
+  );
 
-  const getStatusConfig = (statut: string) => {
-    switch (statut) {
-      case 'EN_ATTENTE': return { color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.1)', label: 'NOUVEAU BON', icon: 'document-text' };
-      case 'CONFIRMEE': return { color: '#3B82F6', bg: 'rgba(59, 130, 246, 0.1)', label: 'CHARGEMENT PRÉVU', icon: 'cube' };
-      case 'EN_ROUTE': return { color: '#10B981', bg: 'rgba(16, 185, 129, 0.1)', label: 'EN TRANSIT', icon: 'truck' };
-      case 'LIVREE': return { color: '#64748B', bg: 'rgba(100, 116, 139, 0.1)', label: 'LIVRÉ', icon: 'checkmark-done-circle' };
-      case 'ANNULEE': return { color: '#EF4444', bg: 'rgba(239, 68, 68, 0.1)', label: 'ANNULÉ', icon: 'close-circle' };
-      default: return { color: '#94a3b8', bg: '#f1f5f9', label: statut, icon: 'ellipse' };
-    }
-  };
-
-  const getMaterialLabel = (type: string) => {
-    const labels: { [key: string]: string } = {
-      SABLE: 'Sable de construction',
-      GRAVIER: 'Gravier concassé',
-      CIMENT: 'Ciment (Sacs)',
-      FER: 'Fer à béton',
-      BRIQUE: 'Briques',
-      AUTRE: 'Matériau divers',
-    };
-    return labels[type] || type;
-  };
-
-  const renderLivraison = ({ item, index }: { item: Livraison, index: number }) => {
-    const status = getStatusConfig(item.statut);
-
-    return (
-      <Animated.View style={[styles.card, { opacity: fadeAnim, transform: [{ translateY: fadeAnim.interpolate({ inputRange: [0, 1], outputRange: [20 * (index + 1), 0] }) }] }]}>
-        
-        {/* EN-TÊTE : STATUT & PRIX */}
-        <View style={styles.cardHeader}>
-          <View style={[styles.badge, { backgroundColor: status.bg }]}>
-            <Ionicons name={status.icon as any} size={12} color={status.color} />
-            <Text style={[styles.badgeText, { color: status.color }]}>{status.label}</Text>
-          </View>
-          <View style={styles.priceContainer}>
-            <Text style={styles.priceValue}>{item.prix.toLocaleString()}</Text>
-            <Text style={styles.priceCurrency}>FCFA</Text>
-          </View>
-        </View>
-
-        {/* INFO CLIENT */}
-        <View style={styles.clientSection}>
-          <View style={styles.clientAvatar}>
-            <Ionicons name="person" size={18} color="#94a3b8" />
-          </View>
-          <View style={styles.clientInfo}>
-            <Text style={styles.clientName}>{item.user.prenom} {item.user.nom}</Text>
-            <Text style={styles.clientPhone}>{item.user.telephone}</Text>
-          </View>
-          <TouchableOpacity style={styles.callButton}>
-            <Ionicons name="call" size={18} color="#10B981" />
-          </TouchableOpacity>
-        </View>
-
-        {/* DÉTAILS MATÉRIAUX ET CAMION */}
-        <View style={styles.detailsBox}>
-          <View style={styles.detailRow}>
-            <View style={styles.iconCircle}><FontAwesome5 name="cubes" size={12} color="#FF6B35" /></View>
-            <View>
-              <Text style={styles.detailLabel}>Cargaison</Text>
-              <Text style={styles.detailValue}>{getMaterialLabel(item.typeMateriau)} <Text style={styles.detailHighlight}>• {item.quantite} {item.unite}</Text></Text>
-            </View>
-          </View>
-          
-          {item.camion && (
-            <View style={[styles.detailRow, { marginTop: 15 }]}>
-              <View style={[styles.iconCircle, { backgroundColor: '#F0F9FF' }]}><FontAwesome5 name="truck" size={12} color="#0EA5E9" /></View>
-              <View>
-                <Text style={styles.detailLabel}>Véhicule assigné</Text>
-                <Text style={styles.detailValue}>{item.camion.type} <Text style={styles.detailSub}>({item.camion.immatriculation})</Text></Text>
-              </View>
-            </View>
-          )}
-        </View>
-
-        {/* LIEU ET DATE */}
-        <View style={styles.locationSection}>
-          <View style={styles.locationRow}>
-            <Ionicons name="location" size={18} color="#10B981" style={{ width: 25 }} />
-            <Text style={styles.locationText}>{item.adresseLivraison}</Text>
-          </View>
-          <View style={styles.locationRow}>
-            <Ionicons name="calendar" size={18} color="#64748B" style={{ width: 25 }} />
-            <Text style={styles.locationText}>
-              Le {new Date(item.dateLivraison).toLocaleDateString('fr-FR')} à <Text style={{fontWeight: '800'}}>{item.heurePreferee}</Text>
-            </Text>
-          </View>
-        </View>
-
-        {/* BOUTONS D'ACTION */}
-        <View style={styles.footerSection}>
-          {item.statut === 'EN_ATTENTE' && (
-            <TouchableOpacity style={styles.actionBtnContainer} onPress={() => handleAction(item.id, 'accepter', 'Bon de livraison accepté !')}>
-              <LinearGradient colors={['#F59E0B', '#FBBF24']} style={styles.actionGradient} start={{x:0, y:0}} end={{x:1, y:0}}>
-                <Text style={styles.actionText}>Accepter la livraison</Text>
-                <Ionicons name="document-text" size={18} color="white" style={{marginLeft: 8}} />
-              </LinearGradient>
-            </TouchableOpacity>
-          )}
-
-          {item.statut === 'CONFIRMEE' && (
-            <TouchableOpacity style={styles.actionBtnContainer} onPress={() => handleAction(item.id, 'en-route', 'Cargaison en transit !')}>
-              <LinearGradient colors={['#3B82F6', '#60A5FA']} style={styles.actionGradient} start={{x:0, y:0}} end={{x:1, y:0}}>
-                <Text style={styles.actionText}>Démarrer le transit</Text>
-                <FontAwesome5 name="truck-moving" size={16} color="white" style={{marginLeft: 10}} />
-              </LinearGradient>
-            </TouchableOpacity>
-          )}
-
-          {item.statut === 'EN_ROUTE' && (
-            <TouchableOpacity style={styles.actionBtnContainer} onPress={() => handleAction(item.id, 'livree', 'Déchargement confirmé !')}>
-              <LinearGradient colors={['#10B981', '#34D399']} style={styles.actionGradient} start={{x:0, y:0}} end={{x:1, y:0}}>
-                <Text style={styles.actionText}>Marquer comme Livrée</Text>
-                <Ionicons name="checkmark-done" size={18} color="white" style={{marginLeft: 8}} />
-              </LinearGradient>
-            </TouchableOpacity>
-          )}
-        </View>
-
-      </Animated.View>
-    );
-  };
+  if (loading) return <View style={styles.loader}><ActivityIndicator size="large" color="#F59E0B" /></View>;
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" translucent />
-      
-      {/* HEADER PRO */}
-      <LinearGradient colors={['#0f172a', '#1e293b']} style={styles.headerPremium}>
+      <StatusBar barStyle="light-content" />
+      <LinearGradient colors={['#1e293b', '#0f172a']} style={styles.header}>
         <SafeAreaView edges={['top']}>
-          <View style={styles.headerContent}>
-            <View>
-              <Text style={styles.headerGreeting}>Bonjour, {user?.prenom}</Text>
-              <Text style={styles.headerTitle}>Flotte BTP</Text>
+          <View style={styles.headerTop}>
+            <View style={styles.profileBox}>
+              {/* 🚩 ZONE PHOTO ARRANGÉE */}
+              <View style={styles.avatarContainer}>
+                <Image 
+                  source={{ uri: (user as any)?.photo || defaultAvatar }} 
+                  style={styles.avatar} 
+                />
+                {isOnline && (
+                  <Animated.View style={[styles.onlineDot, { opacity: onlinePulse }]} />
+                )}
+              </View>
+              
+              <View>
+                <Text style={styles.name}>{user?.prenom} {user?.nom}</Text>
+                <View style={styles.roleBadge}>
+                   <Text style={styles.role}>CHAUFFEUR POIDS LOURD</Text>
+                </View>
+              </View>
             </View>
-            <View style={styles.onlineBadge}>
-              <View style={styles.onlineDot} />
-              <Text style={styles.onlineText}>ACTIF</Text>
-            </View>
+            
+            <TouchableOpacity 
+              onPress={() => setIsOnline(!isOnline)} 
+              style={[styles.statusBtn, !isOnline && styles.statusBtnOff]}
+            >
+              <Ionicons name={isOnline ? "radio" : "power"} size={20} color="white" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.statsBar}>
+            <View style={styles.statItem}><Text style={styles.statLabel}>PERMIS</Text><Text style={styles.statValue}>{typePermis}</Text></View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}><Text style={styles.statLabel}>EXP.</Text><Text style={styles.statValue}>{exp}</Text></View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}><Text style={styles.statLabel}>BONS</Text><Text style={styles.statValue}>{totalBons}</Text></View>
+          </View>
+
+          <View style={styles.tabBar}>
+            <TabItem label="Radar" active={activeTab === 'MISSIONS'} icon="flash" onPress={() => setActiveTab('MISSIONS')} />
+            <TabItem label="Histoire" active={activeTab === 'HISTORY'} icon="time" onPress={() => setActiveTab('HISTORY')} />
+            <TabItem label="Revenus" active={activeTab === 'PAYMENTS'} icon="wallet" onPress={() => setActiveTab('PAYMENTS')} />
           </View>
         </SafeAreaView>
       </LinearGradient>
 
-      {/* LISTE DES LIVRAISONS */}
-      <FlatList
-        data={livraisons}
-        renderItem={renderLivraison}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContainer}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF6B35" />}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <MaterialCommunityIcons name="clipboard-text-off-outline" size={70} color="#cbd5e1" />
-            <Text style={styles.emptyTitle}>Aucun bon de livraison</Text>
-            <Text style={styles.emptySub}>Les demandes de transport BTP apparaîtront ici.</Text>
+      {activeTab === 'PAYMENTS' ? (
+        <View style={styles.revenuesContainer}>
+           <View style={styles.revenueCard}>
+             <FontAwesome5 name="wallet" size={30} color="#F59E0B" />
+             <Text style={styles.revenueLabel}>Gains de la semaine</Text>
+             <Text style={styles.revenueValue}>{stats?.totalRevenus.toLocaleString() || 0} FCFA</Text>
+           </View>
+        </View>
+      ) : (
+        isOnline && activeTab === 'MISSIONS' && livraisons.length === 0 ? (
+          <View style={styles.radarContainer}>
+            <Animated.View style={[styles.radarCircle, { transform: [{ scale: radarAnim }], opacity: radarAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]} />
+            <MaterialCommunityIcons name="truck-delivery" size={80} color="#cbd5e1" />
+            <Text style={styles.radarTitle}>Recherche de chantiers...</Text>
           </View>
-        }
-      />
+        ) : (
+          <FlatList data={filteredData} renderItem={renderLivraison} keyExtractor={(item) => item.id} contentContainerStyle={styles.list} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={fetchData} />} />
+        )
+      )}
     </View>
   );
 }
 
+const TabItem = ({ label, active, icon, onPress }: any) => (
+  <TouchableOpacity onPress={onPress} style={[styles.tabItem, active && styles.tabActive]}>
+    <Ionicons name={active ? icon : `${icon}-outline`} size={18} color={active ? "#F59E0B" : "#94a3b8"} />
+    <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
+  </TouchableOpacity>
+);
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  container: { flex: 1, backgroundColor: '#F1F5F9' },
+  header: { paddingBottom: 20, borderBottomLeftRadius: 30, borderBottomRightRadius: 30 },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10 },
+  profileBox: { flexDirection: 'row', alignItems: 'center', gap: 15 },
   
-  // HEADER
-  headerPremium: { paddingBottom: 25, borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 15, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10 },
-  headerContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 25, paddingTop: 10 },
-  headerGreeting: { fontSize: 13, color: '#FF8E64', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
-  headerTitle: { fontSize: 24, fontWeight: '900', color: 'white', marginTop: 4 },
-  onlineBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(16, 185, 129, 0.15)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.3)' },
-  onlineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#10B981', marginRight: 6 },
-  onlineText: { color: '#10B981', fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
+  // 🚩 STYLES PHOTO ARRANGÉS
+  avatarContainer: { position: 'relative' },
+  avatar: { 
+    width: 55, 
+    height: 55, 
+    borderRadius: 12, 
+    borderWidth: 2, 
+    borderColor: '#F59E0B',
+    backgroundColor: '#1e293b'
+  },
+  onlineDot: { 
+    position: 'absolute', 
+    bottom: -2, 
+    right: -2, 
+    width: 14, 
+    height: 14, 
+    borderRadius: 7, 
+    backgroundColor: '#10B981', 
+    borderWidth: 2, 
+    borderColor: '#1e293b' 
+  },
 
-  listContainer: { padding: 20, paddingBottom: 100 },
+  name: { color: 'white', fontWeight: '900', fontSize: 18 },
+  roleBadge: { backgroundColor: 'rgba(245, 158, 11, 0.1)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 5, marginTop: 2 },
+  role: { color: '#F59E0B', fontSize: 9, fontWeight: '800' },
   
-  // CARTE LIVRAISON
-  card: { backgroundColor: 'white', borderRadius: 24, padding: 20, marginBottom: 20, shadowColor: '#94a3b8', shadowOpacity: 0.15, shadowRadius: 15, elevation: 5 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  badge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 },
-  badgeText: { fontSize: 10, fontWeight: '900', marginLeft: 6, letterSpacing: 0.5 },
-  priceContainer: { flexDirection: 'row', alignItems: 'flex-end' },
-  priceValue: { fontSize: 22, fontWeight: '900', color: '#1e293b' },
-  priceCurrency: { fontSize: 12, fontWeight: '800', color: '#94a3b8', marginLeft: 4, marginBottom: 4 },
-
-  // INFO CLIENT
-  clientSection: { flexDirection: 'row', alignItems: 'center', paddingBottom: 15, borderBottomWidth: 1, borderBottomColor: '#F1F5F9', marginBottom: 15 },
-  clientAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#F1F5F9' },
-  clientInfo: { flex: 1, marginLeft: 12 },
-  clientName: { fontSize: 15, fontWeight: '800', color: '#1e293b' },
-  clientPhone: { fontSize: 12, color: '#64748B', fontWeight: '600', marginTop: 2 },
-  callButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(16, 185, 129, 0.1)', justifyContent: 'center', alignItems: 'center' },
-
-  // BOX DÉTAILS MATÉRIAUX
-  detailsBox: { backgroundColor: '#F8FAFC', borderRadius: 16, padding: 15, marginBottom: 15, borderWidth: 1, borderColor: '#F1F5F9' },
-  detailRow: { flexDirection: 'row', alignItems: 'center' },
-  iconCircle: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#FFF5F2', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  detailLabel: { fontSize: 11, color: '#94a3b8', fontWeight: '700', textTransform: 'uppercase', marginBottom: 2 },
-  detailValue: { fontSize: 14, fontWeight: '800', color: '#1e293b' },
-  detailHighlight: { color: '#FF6B35' },
-  detailSub: { color: '#64748B', fontWeight: '600' },
-
-  // LIEU ET DATE
-  locationSection: { marginBottom: 20 },
-  locationRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  locationText: { fontSize: 14, fontWeight: '600', color: '#334155', flex: 1 },
-
-  // BOUTONS D'ACTION
-  footerSection: { paddingTop: 10 },
-  actionBtnContainer: { width: '100%', borderRadius: 16, overflow: 'hidden', elevation: 3 },
-  actionGradient: { paddingVertical: 15, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
-  actionText: { color: 'white', fontSize: 14, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
-
-  // EMPTY STATE
-  emptyContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 80 },
-  emptyTitle: { fontSize: 18, fontWeight: '800', color: '#475569', marginTop: 20 },
-  emptySub: { fontSize: 13, color: '#94a3b8', marginTop: 8, textAlign: 'center', paddingHorizontal: 40, lineHeight: 20 },
+  statusBtn: { backgroundColor: '#10B981', padding: 10, borderRadius: 12, elevation: 5 },
+  statusBtnOff: { backgroundColor: '#EF4444' },
+  
+  statsBar: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.05)', marginHorizontal: 20, marginTop: 15, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  statItem: { flex: 1, alignItems: 'center' },
+  statLabel: { color: '#94a3b8', fontSize: 8, fontWeight: '800' },
+  statValue: { color: 'white', fontSize: 14, fontWeight: '900' },
+  statDivider: { width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.1)' },
+  
+  tabBar: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 15 },
+  tabItem: { alignItems: 'center', padding: 8, borderRadius: 10, width: '30%' },
+  tabActive: { backgroundColor: 'rgba(245, 158, 11, 0.1)' },
+  tabLabel: { color: '#94a3b8', fontSize: 10, fontWeight: '700', marginTop: 4 },
+  tabLabelActive: { color: '#F59E0B' },
+  
+  list: { padding: 20 },
+  card: { backgroundColor: 'white', borderRadius: 15, padding: 15, marginBottom: 15, elevation: 3 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  priceValue: { fontSize: 16, fontWeight: '900', color: '#1e293b' },
+  badgeBTP: { backgroundColor: '#FFFBEB', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5, borderWidth: 1, borderColor: '#FEF3C7' },
+  badgeText: { color: '#F59E0B', fontSize: 9, fontWeight: '900' },
+  locBox: { gap: 8, marginBottom: 15 },
+  locRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  locText: { color: '#475569', fontSize: 12, fontWeight: '600' },
+  btnAccept: { backgroundColor: '#F59E0B', padding: 14, borderRadius: 10, alignItems: 'center' },
+  btnText: { color: 'white', fontWeight: '900', fontSize: 12 },
+  
+  radarContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 50 },
+  radarCircle: { position: 'absolute', width: 220, height: 220, borderRadius: 110, borderWidth: 1, borderColor: '#F59E0B' },
+  radarTitle: { fontSize: 16, fontWeight: '700', color: '#475569', marginTop: 15 },
+  
+  revenuesContainer: { padding: 20 },
+  revenueCard: { backgroundColor: 'white', padding: 30, borderRadius: 20, alignItems: 'center', elevation: 4 },
+  revenueLabel: { color: '#64748B', marginTop: 10, fontWeight: '600' },
+  revenueValue: { fontSize: 28, fontWeight: '900', color: '#1e293b', marginTop: 5 },
+  loader: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1e293b' }
 });

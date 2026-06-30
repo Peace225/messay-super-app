@@ -1,111 +1,178 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Animated,
-  Dimensions,
-  ImageBackground,
-  StatusBar,
-  SafeAreaView,
-  Modal,
-  Image,
-  Easing,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated,
+  Dimensions, ImageBackground, StatusBar, SafeAreaView, Modal,
+  Image, ActivityIndicator, Alert, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useAuthStore } from '../store/authStore'; 
-import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useAuthStore } from '../store/authStore';
+import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import messaging from '@react-native-firebase/messaging';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
-// --- MIXTE : SOCIAL PROOF & CIVISME ---
 const SOCIAL_MESSAGES = [
   { id: 1, user: "Aboubacar", action: "vient de commander", service: "un Tricycle", location: "Adjamé", avatar: "https://images.unsplash.com/photo-1507152832244-10d45c7eda57?w=150", type: 'order' },
-  { id: 2, user: "MESSAY", action: "Conseil Civique :", service: "Portez toujours votre casque", location: "Sécurité", avatar: null, type: 'civisme', icon: 'shield-alt' },
-  { id: 3, user: "Marie-Noëlle", action: "a réservé son ticket", service: "Bus VIP", location: "Plateau", avatar: "https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=150", type: 'order' },
-  { id: 4, user: "MESSAY", action: "Engagement :", service: "Ne jetez rien par la fenêtre", location: "Propreté", avatar: null, type: 'civisme', icon: 'leaf' },
-  { id: 5, user: "Drissa", action: "a commandé du", service: "Sable fin", location: "Angré 8ème", avatar: "https://images.unsplash.com/photo-1522529599102-193c0d76b5b6?w=150", type: 'order' },
-  { id: 6, user: "MESSAY", action: "Respect :", service: "Soyez courtois avec le chauffeur", location: "Savoir-vivre", avatar: null, type: 'civisme', icon: 'heart' },
+  { id: 2, user: "MESSAY", action: "Conseil :", service: "Portez toujours votre casque", location: "Sécurité", avatar: null, type: 'civisme', icon: 'shield-alt' },
+  { id: 3, user: "Marie-Noëlle", action: "a réservé", service: "Bus VIP", location: "Plateau", avatar: "https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=150", type: 'order' },
 ];
 
-const ServiceCard = ({ item, fadeAnim, onPress }) => (
-  <Animated.View style={[styles.serviceCardWrapper, { opacity: fadeAnim }]}>
-    <TouchableOpacity onPress={onPress} activeOpacity={0.9} style={styles.cardTouch}>
-      <ImageBackground source={item.image} style={styles.serviceImage} imageStyle={{ borderRadius: 25 }} resizeMode="cover">
-        {item.badge && (
-          <View style={[styles.badgeContainer, { backgroundColor: item.badgeColor }]}>
-            <Text style={styles.badgeText}>{item.badge}</Text>
+const SERVICES_DATA = [
+  {
+    id: 'tricycle',
+    title: 'Tricycle',
+    icon: 'motorcycle',
+    description: 'Transport Urbain',
+    badge: '🔥 Populaire',
+    badgeColor: '#FF3B30',
+    image: require('../../assets/images/tricycle.jpg'),
+    path: '/(tabs)/tricycle'
+  },
+  {
+    id: 'transport',
+    title: 'Tickets Bus',
+    icon: 'ticket-alt',
+    description: 'Inter-urbain',
+    badge: '⭐ Top',
+    badgeColor: '#FFD60A',
+    image: require('../../assets/images/bus.jpg'),
+    path: '/(tabs)/tickets'
+  },
+];
+
+const ServiceCard = ({ item, fadeAnim, onPress }: any) => {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, { toValue: 0.95, useNativeDriver: true }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, { toValue: 1, friction: 5, tension: 40, useNativeDriver: true }).start();
+  };
+
+  return (
+    <Animated.View style={[styles.cardWrap, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
+      <TouchableOpacity
+        onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        activeOpacity={0.9}
+        style={styles.cardContainer}
+      >
+        <ImageBackground source={item.image} style={styles.cardImg} imageStyle={{ borderRadius: 24 }}>
+          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.cardShade} />
+
+          {item.badge && (
+            <View style={[styles.badge, { backgroundColor: item.badgeColor }]}>
+              <Text style={styles.badgeTxt}>{item.badge}</Text>
+            </View>
+          )}
+
+          <View style={styles.cardIcon}>
+            <FontAwesome5 name={item.icon} size={14} color="#1D1D1F" />
           </View>
-        )}
-        <View style={styles.serviceIconFloating}><FontAwesome5 name={item.icon} size={14} color="white" /></View>
-        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.9)']} style={styles.serviceGradient}>
-          <Text style={styles.serviceTitlePremium}>{item.title}</Text>
-          <Text style={styles.serviceDescSmall}>{item.description}</Text>
-        </LinearGradient>
-      </ImageBackground>
-    </TouchableOpacity>
-  </Animated.View>
-);
+
+          <View style={styles.cardBottom}>
+            <Text style={styles.cardTitle}>{item.title}</Text>
+            <Text style={styles.cardDesc}>{item.description}</Text>
+          </View>
+        </ImageBackground>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, isAuthenticated, isLoading } = useAuthStore();
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const [activeBanner, setActiveBanner] = useState(0); 
-  const [showPopup, setShowPopup] = useState(false);
+  const socialAnim = useRef(new Animated.Value(-120)).current;
   const [currentSocialIndex, setCurrentSocialIndex] = useState(0);
-  const socialAnim = useRef(new Animated.Value(-150)).current; 
-  const modalScale = useRef(new Animated.Value(0)).current; 
-  const driveX = useRef(new Animated.Value(-350)).current; 
-  const bumpY = useRef(new Animated.Value(0)).current;      
+  const [showPopup, setShowPopup] = useState(false);
+  const modalScale = useRef(new Animated.Value(0)).current;
 
-  const services = [
-    { id: 'tricycle', title: 'Tricycle', icon: 'motorcycle', description: 'Transport Urbain', badge: '🔥 Populaire', badgeColor: '#FF3B30', image: require('../../assets/images/tricycle.jpg'), path: '/(tabs)/tricycle' },
-    { id: 'transport', title: 'Tickets Bus', icon: 'ticket-alt', description: 'Inter-urbain', badge: '⭐ Top Noté', badgeColor: '#FFD700', image: require('../../assets/images/bus.jpg'), path: '/(tabs)/tickets' },
-    { id: 'events', title: 'Événements', icon: 'star', description: 'Tickets & Loisirs', image: require('../../assets/images/event.jpg'), path: '/(tabs)/events' },
-    { id: 'btp', title: 'Matériaux', icon: 'truck-pickup', description: 'Livraison BTP', badge: '🆕 Nouveau', badgeColor: '#4CAF50', image: require('../../assets/images/btp.jpg'), path: '/(tabs)/btp' },
-  ];
+  // 🔥 FIREBASE MESSAGING - AJOUTÉ
+  useEffect(() => {
+    const setupFCM = async () => {
+      try {
+        // Demande permission
+        const authStatus = await messaging().requestPermission();
+        const enabled =
+          authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+          authStatus === messaging.AuthorizationStatus.PROVISIONAL;
 
-  const heroBanners = [
-    { id: '1', greeting: `Salut, ${user?.prenom || 'Kevin'}`, title: 'Votre trajet de luxe\ncommence ici.', cta: 'Réserver', path: '/(tabs)/tricycle', image: require('../../assets/images/hero.png') },
-    { id: '2', greeting: 'MESSAY LOGISTIQUE', title: 'Vos matériaux BTP\nlivrés à temps.', cta: 'Commander', path: '/(tabs)/btp', image: require('../../assets/images/btp1.jpg') },
-  ];
+        if (enabled) {
+          // Récupère le token
+          const token = await messaging().getToken();
+          console.log('🔑 TOKEN FCM MESSAY:', token);
+
+          // Affiche pendant 5 sec puis disparaît
+          setTimeout(() => {
+            Alert.alert(
+              '✅ FCM Prêt',
+              `Token copié dans les logs\n\n${token.substring(0, 40)}...`,
+              [{ text: 'OK' }]
+            );
+          }, 2000);
+        }
+      } catch (error) {
+        console.log('FCM Error:', error);
+      }
+    };
+
+    if (isAuthenticated) {
+      setupFCM();
+    }
+  }, [isAuthenticated]);
 
   useEffect(() => {
-    Animated.timing(fadeAnim, { toValue: 1, duration: 1000, useNativeDriver: true }).start();
-    setTimeout(() => setShowPopup(true), 3000);
+    if (!isLoading && isAuthenticated && user) {
+      if (user.role === 'CONDUCTEUR') router.replace('/conducteur-dashboard');
+      else if (user.role === 'CHAUFFEUR') router.replace('/chauffeur-dashboard');
+    }
+  }, [user, isAuthenticated, isLoading]);
+
+  const heroBanners = useMemo(() => [
+    {
+      id: '1',
+      greeting: `Salut, ${user?.prenom || user?.nom || 'Membre'} 👋`,
+      title: 'Votre trajet premium\ncommence ici',
+      cta: 'Réserver maintenant',
+      path: '/(tabs)/tricycle',
+      image: require('../../assets/images/hero.png')
+    },
+  ], [user]);
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
+    if (isAuthenticated) setTimeout(() => setShowPopup(true), 2500);
 
     const interval = setInterval(() => {
-      Animated.spring(socialAnim, { toValue: 50, friction: 6, tension: 40, useNativeDriver: true }).start();
+      Animated.spring(socialAnim, { toValue: 24, friction: 6, useNativeDriver: true }).start();
       setTimeout(() => {
-        Animated.timing(socialAnim, { toValue: -150, duration: 600, useNativeDriver: true }).start(() => {
-          setCurrentSocialIndex((prev) => (prev + 1) % SOCIAL_MESSAGES.length);
+        Animated.timing(socialAnim, { toValue: -120, duration: 400, useNativeDriver: true }).start(() => {
+          setCurrentSocialIndex(p => (p + 1) % SOCIAL_MESSAGES.length);
         });
-      }, 5000);
-    }, 10000);
-
+      }, 4000);
+    }, 8000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
-    if (showPopup) {
-      modalScale.setValue(0);
-      Animated.spring(modalScale, { toValue: 1, friction: 6, useNativeDriver: true }).start();
-      Animated.loop(Animated.sequence([
-        Animated.timing(bumpY, { toValue: -2, duration: 100, useNativeDriver: true }),
-        Animated.timing(bumpY, { toValue: 0, duration: 100, useNativeDriver: true })
-      ])).start();
-      Animated.loop(Animated.sequence([
-        Animated.timing(driveX, { toValue: 0, duration: 800, easing: Easing.out(Easing.back(1)), useNativeDriver: true }),
-        Animated.delay(2000),
-        Animated.timing(driveX, { toValue: 400, duration: 600, useNativeDriver: true }),
-        Animated.timing(driveX, { toValue: -400, duration: 0, useNativeDriver: true }),
-      ])).start();
-    }
+    if (showPopup) Animated.spring(modalScale, { toValue: 1, friction: 6, useNativeDriver: true }).start();
   }, [showPopup]);
+
+  if (isLoading) {
+    return (
+      <View style={styles.loader}>
+        <ActivityIndicator size="large" color="#FF6B35" />
+        <Text style={styles.loaderTxt}>Chargement...</Text>
+      </View>
+    );
+  }
 
   const currentMsg = SOCIAL_MESSAGES[currentSocialIndex];
 
@@ -113,91 +180,86 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
 
-      {/* --- NOTIFICATION SOCIAL PROOF & CIVISME --- */}
-      <Animated.View style={[styles.socialToast, { transform: [{ translateY: socialAnim }], backgroundColor: currentMsg.type === 'civisme' ? '#0f172a' : '#1A1A1A' }]}>
-        <View style={styles.avatarWrapper}>
-            {currentMsg.type === 'order' ? (
-                <Image source={{ uri: currentMsg.avatar }} style={styles.socialAvatar} />
-            ) : (
-                <View style={styles.civismeIconBox}><FontAwesome5 name={currentMsg.icon} size={18} color="#fbbf24" /></View>
-            )}
-            {currentMsg.type === 'order' && <View style={styles.activeUserDot} />}
-        </View>
-        <View style={styles.socialTextWrapper}>
-          <Text style={styles.socialName}>{currentMsg.user} <Text style={[styles.socialAction, currentMsg.type === 'civisme' && {color: '#fbbf24', fontWeight: 'bold'}]}>{currentMsg.action}</Text></Text>
-          <Text style={[styles.socialDetail, currentMsg.type === 'civisme' && {color: 'white'}]}>{currentMsg.service} • {currentMsg.location}</Text>
-        </View>
-        <View style={styles.socialLiveBadge}>
-            <Text style={styles.liveTextSmall}>{currentMsg.type === 'order' ? "À l'instant" : "INFO"}</Text>
+      <Animated.View style={[styles.toast, { transform: [{ translateY: socialAnim }] }]}>
+        <View style={styles.toastInner}>
+          {currentMsg.type === 'order'? (
+            <Image source={{ uri: currentMsg.avatar! }} style={styles.toastAvatar} />
+          ) : (
+            <View style={styles.toastIcon}><FontAwesome5 name={currentMsg.icon as any} size={16} color="#FF6B35" /></View>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.toastTitle}>{currentMsg.user} <Text style={styles.toastAction}>{currentMsg.action}</Text></Text>
+            <Text style={styles.toastSub}>{currentMsg.service} • {currentMsg.location}</Text>
+          </View>
+          <View style={styles.liveDot} />
         </View>
       </Animated.View>
-      
-      <LinearGradient colors={['#FF6B35', '#FF8E64']} style={styles.headerPremium}>
+
+      <LinearGradient colors={['#FF6B35', '#ED8936']} style={styles.header}>
         <SafeAreaView>
-          <View style={styles.headerContent}>
-            <View><Text style={styles.brandText}>MESSAY</Text><Text style={styles.tagline}>Smart Mobility & Logistics</Text></View>
-            <TouchableOpacity style={styles.avatarCircle} onPress={() => router.push('/profile')}>
-              <Text style={styles.avatarInitial}>{user?.prenom?.charAt(0) || 'K'}</Text>
-              <View style={styles.onlineDot} />
+          <View style={styles.headerRow}>
+            <View>
+              <Text style={styles.logo}>MESSAY</Text>
+              <Text style={styles.tag}>L'EXCELLENCE EN MOUVEMENT</Text>
+            </View>
+            <TouchableOpacity style={styles.avatar} onPress={() => router.push('/profile')}>
+              <Text style={styles.avatarTxt}>{user?.nom?.charAt(0) || 'M'}</Text>
             </TouchableOpacity>
           </View>
         </SafeAreaView>
       </LinearGradient>
 
-      <View style={styles.searchWrapper}>
-        <TouchableOpacity style={styles.searchBar} activeOpacity={0.9} onPress={() => router.push('/(tabs)/tricycle')}>
-          <View style={styles.searchLeft}><Ionicons name="search" size={22} color="#FF6B35" /><Text style={styles.searchText}>Destination ?</Text></View>
-          <View style={styles.searchRight}><Text style={styles.searchTime}>Maintenant</Text></View>
-        </TouchableOpacity>
-      </View>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
-        <View style={styles.heroContainer}>
-          <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={(e) => setActiveBanner(Math.round(e.nativeEvent.contentOffset.x / (width - 40)))} scrollEventThrottle={16}>
-            {heroBanners.map((banner) => (
-              <View key={banner.id} style={{ width: width - 40, height: '100%' }}>
-                <ImageBackground source={banner.image} style={styles.heroImage} imageStyle={{ borderRadius: 30 }}>
-                  <LinearGradient colors={['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.85)']} style={styles.heroOverlay}>
-                    <Text style={styles.heroGreeting}>{banner.greeting}</Text>
-                    <Text style={styles.heroTitle}>{banner.title}</Text>
-                    <TouchableOpacity style={styles.premiumCta} onPress={() => router.push(banner.path)}>
-                      <Text style={styles.premiumCtaText}>{banner.cta}</Text>
-                      <Ionicons name="chevron-forward-circle" size={18} color="#FF6B35" />
-                    </TouchableOpacity>
-                  </LinearGradient>
-                </ImageBackground>
-              </View>
-            ))}
-          </ScrollView>
+        <View style={styles.searchWrap}>
+          <TouchableOpacity style={styles.search} onPress={() => router.push('/(tabs)/tricycle')}>
+            <Ionicons name="search" size={20} color="#FF6B35" />
+            <Text style={styles.searchTxt}>Où allons-nous?</Text>
+            <View style={styles.searchPill}><Text style={styles.searchPillTxt}>Maintenant</Text></View>
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Nos Services</Text></View>
-        <View style={styles.gridContainer}>
-          {services.map((item, index) => (
-            <ServiceCard key={item.id} item={item} index={index} fadeAnim={fadeAnim} onPress={() => router.push(item.path)} />
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={styles.heroScroll}>
+          {heroBanners.map(b => (
+            <View key={b.id} style={styles.heroCard}>
+              <ImageBackground source={b.image} style={styles.heroImg} imageStyle={{ borderRadius: 28 }}>
+                <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.heroGrad}>
+                  <Text style={styles.heroHi}>{b.greeting}</Text>
+                  <Text style={styles.heroTitle}>{b.title}</Text>
+                  <TouchableOpacity onPress={() => router.push(b.path as any)} style={styles.heroBtn}>
+                    <Text style={styles.heroBtnTxt}>{b.cta}</Text>
+                    <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </LinearGradient>
+              </ImageBackground>
+            </View>
           ))}
+        </ScrollView>
+
+        <View style={styles.section}>
+          <View style={styles.grid}>
+            {SERVICES_DATA.map(s => (
+              <ServiceCard key={s.id} item={s} fadeAnim={fadeAnim} onPress={() => router.push(s.path as any)} />
+            ))}
+          </View>
         </View>
+
       </ScrollView>
 
-      {/* POPUP TRICYCLE */}
-      <Modal animationType="fade" transparent={true} visible={showPopup} onRequestClose={() => setShowPopup(false)}>
-        <View style={styles.modalOverlay}>
-          <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowPopup(false)} />
-          <Animated.View style={[styles.floatingModalContent, { transform: [{ scale: modalScale }] }]}>
-            <View style={styles.miniHeader}>
-              <View style={styles.miniBadge}><FontAwesome5 name="motorcycle" size={10} color="#FF6B35" /><Text style={styles.miniBadgeText}>TRICYCLE PRO</Text></View>
-              <TouchableOpacity onPress={() => setShowPopup(false)}><Ionicons name="close-circle" size={24} color="#DDD" /></TouchableOpacity>
+      <Modal visible={showPopup} transparent animationType="fade">
+        <View style={styles.modalBg}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setShowPopup(false)} />
+          <Animated.View style={[styles.modalCard, { transform: [{ scale: modalScale }] }]}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalIconWrap}>
+                <FontAwesome5 name="motorcycle" size={28} color="#FF6B35" />
+              </View>
+              <Text style={styles.modalTitle}>Tricycle Pro disponible</Text>
+              <Text style={styles.modalSub}>Un chauffeur à 2 min de vous</Text>
+              <TouchableOpacity style={styles.modalBtn} onPress={() => { setShowPopup(false); router.push('/(tabs)/tricycle'); }}>
+                <Text style={styles.modalBtnTxt}>Commander</Text>
+              </TouchableOpacity>
             </View>
-            <View style={styles.imageContainerElite}>
-              <Animated.View style={{ transform: [{ translateX: driveX }] }}>
-                <Animated.Image source={require('../../assets/images/tricycle.png')} style={[styles.imageElite, { transform: [{ translateY: bumpY }] }]} resizeMode="contain" />
-              </Animated.View>
-            </View>
-            <Text style={styles.modalTitleElite}>Prêt à partir ?</Text>
-            <TouchableOpacity style={styles.btnActionElite} onPress={() => { setShowPopup(false); router.push('/(tabs)/tricycle'); }}>
-              <Text style={styles.btnActionText}>Démarrer le trajet</Text>
-              <Ionicons name="chevron-forward" size={18} color="white" />
-            </TouchableOpacity>
           </Animated.View>
         </View>
       </Modal>
@@ -206,63 +268,67 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FA' },
-  socialToast: {
-    position: 'absolute', top: 0, alignSelf: 'center', width: width - 40, borderRadius: 25, padding: 12, flexDirection: 'row', alignItems: 'center', zIndex: 999, elevation: 25, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 20,
-  },
-  avatarWrapper: { position: 'relative' },
-  socialAvatar: { width: 44, height: 44, borderRadius: 22, marginRight: 12, borderWidth: 1, borderColor: '#FF6B35' },
-  civismeIconBox: { width: 44, height: 44, borderRadius: 22, marginRight: 12, backgroundColor: 'rgba(251, 191, 36, 0.1)', justifyContent: 'center', alignItems: 'center' },
-  activeUserDot: { position: 'absolute', bottom: 2, right: 12, width: 8, height: 8, borderRadius: 4, backgroundColor: '#4CAF50', borderWidth: 1, borderColor: '#1A1A1A' },
-  socialTextWrapper: { flex: 1 },
-  socialName: { fontSize: 13, fontWeight: '900', color: 'white' },
-  socialAction: { fontWeight: '400', color: '#AAA' },
-  socialDetail: { fontSize: 11, color: '#FF6B35', marginTop: 2, fontWeight: '700' },
-  socialLiveBadge: { backgroundColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-  liveTextSmall: { fontSize: 8, fontWeight: '900', color: '#DDD' },
+  container: { flex: 1, backgroundColor: '#F5F5F7' },
+  loader: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F7' },
+  loaderTxt: { color: '#86868B', marginTop: 14, fontWeight: '600' },
 
-  headerPremium: { paddingTop: 10, paddingBottom: 45, paddingHorizontal: 25, borderBottomLeftRadius: 35, borderBottomRightRadius: 35 },
-  headerContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  brandText: { color: 'white', fontSize: 24, fontWeight: '900' },
-  tagline: { color: 'rgba(255,255,255,0.8)', fontSize: 10, fontWeight: '600' },
-  avatarCircle: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center' },
-  avatarInitial: { color: '#FF6B35', fontWeight: '900', fontSize: 16 },
-  onlineDot: { position: 'absolute', bottom: 0, right: 0, width: 10, height: 10, backgroundColor: '#4CAF50', borderRadius: 5, borderWidth: 2, borderColor: 'white' },
-  searchWrapper: { paddingHorizontal: 20, marginTop: -25, zIndex: 10 },
-  searchBar: { backgroundColor: 'white', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 20, borderRadius: 18, elevation: 5 },
-  searchLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  searchText: { fontSize: 14, color: '#666', fontWeight: '600' },
-  searchRight: { backgroundColor: '#F4F5F7', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
-  searchTime: { fontSize: 11, color: '#333', fontWeight: '700' },
-  scrollBody: { paddingBottom: 40 },
-  heroContainer: { marginHorizontal: 20, marginTop: 20, height: 220, borderRadius: 30, overflow: 'hidden', elevation: 5 },
-  heroImage: { width: '100%', height: '100%' },
-  heroOverlay: { flex: 1, padding: 20, justifyContent: 'flex-end' },
-  heroGreeting: { color: '#FFD700', fontSize: 11, fontWeight: '800' },
-  heroTitle: { color: 'white', fontSize: 22, fontWeight: '900', marginBottom: 10 },
-  premiumCta: { backgroundColor: 'white', flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 15, borderRadius: 20, gap: 8 },
-  premiumCtaText: { color: '#1A1A1A', fontWeight: '800', fontSize: 12 },
-  sectionHeader: { paddingHorizontal: 25, marginTop: 20 },
-  sectionTitle: { fontSize: 18, fontWeight: '900', color: '#1A1A1A' },
-  gridContainer: { flexDirection: 'row', flexWrap: 'wrap', padding: 8 },
-  serviceCardWrapper: { width: '50%', padding: 6 },
-  cardTouch: { borderRadius: 25, overflow: 'hidden', backgroundColor: 'white', elevation: 4 },
-  serviceImage: { width: '100%', height: 160, justifyContent: 'flex-end' },
-  serviceIconFloating: { position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(255,107,53,0.95)', padding: 6, borderRadius: 10 },
-  serviceGradient: { height: '60%', justifyContent: 'flex-end', padding: 12 },
-  serviceTitlePremium: { color: 'white', fontWeight: '900', fontSize: 14 },
-  serviceDescSmall: { color: 'rgba(255,255,255,0.8)', fontSize: 9 },
-  badgeContainer: { position: 'absolute', top: 10, left: 10, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, zIndex: 10 },
-  badgeText: { color: 'white', fontSize: 9, fontWeight: 'bold' },
-  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 25 },
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.65)' },
-  floatingModalContent: { backgroundColor: 'white', width: '100%', borderRadius: 35, padding: 20, elevation: 20 },
-  miniHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-  miniBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, gap: 6, backgroundColor: '#FFF5F2' },
-  miniBadgeText: { color: '#FF6B35', fontSize: 9, fontWeight: '900', letterSpacing: 1 },
-  imageContainerElite: { width: '100%', height: 140, backgroundColor: '#F8F9FA', borderRadius: 25, marginBottom: 15, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
-  imageElite: { width: 120, height: 100 },
-  modalTitleElite: { fontSize: 22, fontWeight: '900', color: '#1A1A1A', textAlign: 'center', marginBottom: 15 },
-  btnActionElite: { backgroundColor: '#1A1A1A', height: 55, borderRadius: 18, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 },
-  btnActionText: { color: 'white', fontSize: 16, fontWeight: '800' }
+  header: { paddingBottom: 28, borderBottomLeftRadius: 36, borderBottomRightRadius: 36, shadowColor: '#FF6B35', shadowOpacity: 0.2, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, zIndex: 10 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingTop: 8 },
+  logo: { fontSize: 30, fontWeight: '900', color: 'white', letterSpacing: 3 },
+  tag: { fontSize: 10, color: 'rgba(255,255,255,0.9)', fontWeight: '700', letterSpacing: 1, marginTop: 2 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.25)', justifyContent: 'center', alignItems: 'center' },
+  avatarTxt: { color: 'white', fontWeight: '800', fontSize: 18 },
+
+  toast: { position: 'absolute', top: 50, left: 20, right: 20, zIndex: 99 },
+  toastInner: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 24, backgroundColor: 'rgba(255, 255, 255, 0.95)', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.1, shadowRadius: 15, elevation: 5 },
+  toastAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12, backgroundColor: '#F2F2F7' },
+  toastIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,107,53,0.1)', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  toastTitle: { color: '#1D1D1F', fontWeight: '700', fontSize: 13 },
+  toastAction: { color: '#86868B', fontWeight: '500' },
+  toastSub: { color: '#FF6B35', fontSize: 11, fontWeight: '700', marginTop: 2 },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#34C759', marginLeft: 8 },
+
+  searchWrap: { marginTop: 25, paddingHorizontal: 20, zIndex: 20, marginBottom: 15 },
+  search: { height: 60, backgroundColor: '#FFFFFF', borderRadius: 20, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 3, gap: 12 },
+  searchTxt: { flex: 1, color: '#86868B', fontSize: 15, fontWeight: '600' },
+  searchPill: { backgroundColor: 'rgba(255,107,53,0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  searchPillTxt: { color: '#FF6B35', fontSize: 12, fontWeight: '800' },
+
+  heroScroll: { paddingLeft: 20, marginTop: 20 },
+  heroCard: { width: width - 56, height: 210, marginRight: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.1, shadowRadius: 14, elevation: 5 },
+  heroImg: { flex: 1 },
+  heroGrad: { flex: 1, justifyContent: 'flex-end', padding: 22, borderRadius: 28 },
+  heroHi: { color: '#FFD60A', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+  heroTitle: { color: '#FFFFFF', fontSize: 26, fontWeight: '800', lineHeight: 32, marginTop: 6, marginBottom: 16 },
+  heroBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FF6B35', alignSelf: 'flex-start', paddingHorizontal: 18, paddingVertical: 12, borderRadius: 16, gap: 8 },
+  heroBtnTxt: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
+
+  section: { paddingHorizontal: 20, marginTop: 45 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+
+  cardWrap: { width: '48%', height: 190, marginBottom: 16 },
+  cardContainer: {
+    flex: 1,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 4
+  },
+  cardImg: { flex: 1, justifyContent: 'flex-end' },
+  cardShade: {...StyleSheet.absoluteFillObject, borderRadius: 24 },
+  badge: { position: 'absolute', top: 12, left: 12, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 },
+  badgeTxt: { color: 'white', fontSize: 10, fontWeight: '800' },
+  cardIcon: { position: 'absolute', top: 12, right: 12, width: 32, height: 32, borderRadius: 16, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
+  cardBottom: { padding: 16 },
+  cardTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
+  cardDesc: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '500', marginTop: 3 },
+
+  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  modalCard: { width: '100%', borderRadius: 32, backgroundColor: '#FFFFFF', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 10 },
+  modalContent: { padding: 32, alignItems: 'center' },
+  modalIconWrap: { width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255,107,53,0.1)', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
+  modalTitle: { color: '#1D1D1F', fontSize: 22, fontWeight: '800', textAlign: 'center' },
+  modalSub: { color: '#86868B', marginTop: 8, marginBottom: 28, textAlign: 'center', fontSize: 15 },
+  modalBtn: { backgroundColor: '#FF6B35', paddingHorizontal: 32, paddingVertical: 16, borderRadius: 16, width: '100%', alignItems: 'center' },
+  modalBtnTxt: { color: '#FFFFFF', fontWeight: '800', fontSize: 16 },
 });

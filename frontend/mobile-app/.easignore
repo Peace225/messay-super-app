@@ -1,0 +1,12 @@
+@'
+node_modules/
+.git/
+.expo/
+.expo-shared/
+android/
+ios/
+web-build/
+dist/
+*.log
+.env*
+' | Set-Content .easignore -Encoding Ascii

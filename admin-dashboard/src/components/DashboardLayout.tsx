@@ -1,72 +1,25 @@
-import { Outlet, Link, useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../store/authStore';
+import { Outlet } from 'react-router-dom';
+import Sidebar from './Sidebar'; // ✅ CORRIGÉ : Importe bien le fichier Sidebar
+import Header from './Header';   // ✅ CORRIGÉ : Importe le fichier Header
 
 export default function DashboardLayout() {
-  const { user, logout } = useAuthStore();
-  const navigate = useNavigate();
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
-
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Sidebar */}
-      <aside className="fixed left-0 top-0 h-full w-64 bg-secondary text-white">
-        <div className="p-6">
-          <h1 className="text-2xl font-bold">MESSAY Admin</h1>
-        </div>
+    <div className="flex min-h-screen bg-[#F8F9FB]">
+      
+      {/* 1. Sidebar : Fixe à gauche (Largeur w-72 définie dans le composant) */}
+      <Sidebar />
+
+      {/* 2. Zone de contenu : Décalée exactement de la largeur de la Sidebar (ml-72) */}
+      <div className="flex-1 ml-72 flex flex-col min-h-screen">
         
-        <nav className="mt-6">
-          <Link
-            to="/"
-            className="block px-6 py-3 hover:bg-primary transition"
-          >
-            📊 Dashboard
-          </Link>
-          <Link
-            to="/users"
-            className="block px-6 py-3 hover:bg-primary transition"
-          >
-            👥 Utilisateurs
-          </Link>
-          <Link
-            to="/conducteurs"
-            className="block px-6 py-3 hover:bg-primary transition"
-          >
-            🚗 Conducteurs
-          </Link>
-          <Link
-            to="/courses"
-            className="block px-6 py-3 hover:bg-primary transition"
-          >
-            🛺 Courses
-          </Link>
-        </nav>
-      </aside>
+        {/* 3. Header : Sticky en haut de la zone de contenu */}
+        <Header />
 
-      {/* Main Content */}
-      <div className="ml-64">
-        {/* Header */}
-        <header className="bg-white shadow-sm">
-          <div className="flex justify-between items-center px-8 py-4">
-            <h2 className="text-xl font-semibold text-gray-800">
-              Bienvenue, {user?.nom}
-            </h2>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-            >
-              Déconnexion
-            </button>
-          </div>
-        </header>
-
-        {/* Page Content */}
-        <main className="p-8">
-          <Outlet />
+        {/* 4. Main : Zone où s'injectent tes pages (Dashboard, BTP, etc.) */}
+        <main className="p-8 flex-1">
+          <Outlet /> 
         </main>
+        
       </div>
     </div>
   );

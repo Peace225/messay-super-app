@@ -1,256 +1,240 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Dimensions,
-  Animated,
-  StatusBar,
-  Image,
-  Modal,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
+import React, { useState } from 'react';
+import { 
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, 
+  TextInput, StatusBar, Dimensions, Alert 
 } from 'react-native';
-import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
-// --- 1. CONFIGURATION DES COMPAGNIES ---
-const COMPAGNIES = [
-  { id: 'utb', nom: 'UTB', image: require('../../assets/images/compagnies/utb.png'), bgColor: '#E67E22', textColor: '#FFF', btnGradient: ['#F39C12', '#E67E22'] },
-  { id: 'sbta', nom: 'SBTA', image: require('../../assets/images/compagnies/sbta.png'), bgColor: '#2E7D32', textColor: '#FFF', btnGradient: ['#388E3C', '#1B5E20'] },
-  { id: 'avs', nom: 'AVS', image: require('../../assets/images/compagnies/avs.jpg'), bgColor: '#FFD700', textColor: '#E30613', btnGradient: ['#E30613', '#9E040D'] },
+// --- 5 COMPAGNIES x 5 TRAJETS = 25 VOYAGES ---
+const BUS_TRIPS = [
+  // 1. MESSAY EXPRESS (Orange)
+  { id: 'm1', company: 'Messay Express', route: 'Abidjan - Yamoussoukro', departTime: '08:00', arriveTime: '11:15', price: '5000', type: 'VIP (Climatisé)', seatsLeft: 12, rating: 4.9, logoColor: '#FF6B35' },
+  { id: 'm2', company: 'Messay Express', route: 'Abidjan - Bouaké', departTime: '10:30', arriveTime: '15:45', price: '7000', type: 'Standard', seatsLeft: 25, rating: 4.8, logoColor: '#FF6B35' },
+  { id: 'm3', company: 'Messay Express', route: 'Yamoussoukro - Korhogo', departTime: '13:00', arriveTime: '19:30', price: '9000', type: 'VIP', seatsLeft: 8, rating: 4.9, logoColor: '#FF6B35' },
+  { id: 'm4', company: 'Messay Express', route: 'Abidjan - San Pedro', departTime: '21:00', arriveTime: '03:30', price: '8500', type: 'Premium Nuit', seatsLeft: 3, rating: 4.7, logoColor: '#FF6B35' },
+  { id: 'm5', company: 'Messay Express', route: 'Bouaké - Daloa', departTime: '09:00', arriveTime: '13:00', price: '4500', type: 'Standard', seatsLeft: 40, rating: 4.6, logoColor: '#FF6B35' },
+
+  // 2. UTB TRANSPORTS (Bleu)
+  { id: 'u1', company: 'UTB Transports', route: 'Abidjan - Bouaké', departTime: '07:00', arriveTime: '12:30', price: '7000', type: 'Standard', seatsLeft: 15, rating: 4.5, logoColor: '#3B82F6' },
+  { id: 'u2', company: 'UTB Transports', route: 'Yamoussoukro - Abidjan', departTime: '14:00', arriveTime: '17:30', price: '5000', type: 'Climatisé', seatsLeft: 5, rating: 4.4, logoColor: '#3B82F6' },
+  { id: 'u3', company: 'UTB Transports', route: 'Abidjan - Korhogo', departTime: '06:00', arriveTime: '16:00', price: '12000', type: 'Longue Distance', seatsLeft: 22, rating: 4.3, logoColor: '#3B82F6' },
+  { id: 'u4', company: 'UTB Transports', route: 'Bouaké - Man', departTime: '08:30', arriveTime: '15:00', price: '8000', type: 'Standard', seatsLeft: 30, rating: 4.2, logoColor: '#3B82F6' },
+  { id: 'u5', company: 'UTB Transports', route: 'Abidjan - Daloa', departTime: '11:00', arriveTime: '17:00', price: '7500', type: 'Climatisé', seatsLeft: 10, rating: 4.5, logoColor: '#3B82F6' },
+
+  // 3. ARALIA TRANSPORT (Vert)
+  { id: 'a1', company: 'Aralia Transport', route: 'Abidjan - San Pedro', departTime: '22:00', arriveTime: '04:30', price: '8500', type: 'Premium Nuit', seatsLeft: 20, rating: 4.7, logoColor: '#10B981' },
+  { id: 'a2', company: 'Aralia Transport', route: 'San Pedro - Soubré', departTime: '08:00', arriveTime: '10:30', price: '3000', type: 'Express', seatsLeft: 12, rating: 4.6, logoColor: '#10B981' },
+  { id: 'a3', company: 'Aralia Transport', route: 'Abidjan - Gagnoa', departTime: '09:30', arriveTime: '14:00', price: '6000', type: 'Standard', seatsLeft: 4, rating: 4.5, logoColor: '#10B981' },
+  { id: 'a4', company: 'Aralia Transport', route: 'Gagnoa - San Pedro', departTime: '15:00', arriveTime: '18:30', price: '4500', type: 'Climatisé', seatsLeft: 28, rating: 4.4, logoColor: '#10B981' },
+  { id: 'a5', company: 'Aralia Transport', route: 'Abidjan - Sassandra', departTime: '13:00', arriveTime: '17:45', price: '7000', type: 'VIP', seatsLeft: 9, rating: 4.8, logoColor: '#10B981' },
+
+  // 4. GARE NORD EXPRESS (Violet)
+  { id: 'g1', company: 'Gare Nord Express', route: 'Abidjan - Korhogo', departTime: '05:30', arriveTime: '15:30', price: '12000', type: 'VIP+', seatsLeft: 2, rating: 4.6, logoColor: '#8B5CF6' },
+  { id: 'g2', company: 'Gare Nord Express', route: 'Korhogo - Ferké', departTime: '16:30', arriveTime: '17:45', price: '2000', type: 'Navette', seatsLeft: 18, rating: 4.3, logoColor: '#8B5CF6' },
+  { id: 'g3', company: 'Gare Nord Express', route: 'Abidjan - Ouangolo', departTime: '05:00', arriveTime: '16:30', price: '14000', type: 'Standard', seatsLeft: 35, rating: 4.2, logoColor: '#8B5CF6' },
+  { id: 'g4', company: 'Gare Nord Express', route: 'Bouaké - Korhogo', departTime: '10:00', arriveTime: '14:30', price: '5500', type: 'Climatisé', seatsLeft: 14, rating: 4.5, logoColor: '#8B5CF6' },
+  { id: 'g5', company: 'Gare Nord Express', route: 'Abidjan - Boundiali', departTime: '06:00', arriveTime: '17:00', price: '13500', type: 'VIP', seatsLeft: 6, rating: 4.7, logoColor: '#8B5CF6' },
+
+  // 5. IVOIRE RAPIDE (Rouge)
+  { id: 'i1', company: 'Ivoire Rapide', route: 'Abidjan - Daloa', departTime: '07:30', arriveTime: '13:30', price: '7500', type: 'Express', seatsLeft: 21, rating: 4.4, logoColor: '#EF4444' },
+  { id: 'i2', company: 'Ivoire Rapide', route: 'Daloa - Man', departTime: '14:30', arriveTime: '17:30', price: '4000', type: 'Standard', seatsLeft: 8, rating: 4.3, logoColor: '#EF4444' },
+  { id: 'i3', company: 'Ivoire Rapide', route: 'Abidjan - Duékoué', departTime: '08:00', arriveTime: '15:00', price: '8500', type: 'Climatisé', seatsLeft: 11, rating: 4.5, logoColor: '#EF4444' },
+  { id: 'i4', company: 'Ivoire Rapide', route: 'Yamoussoukro - Daloa', departTime: '11:30', arriveTime: '14:30', price: '3500', type: 'Navette', seatsLeft: 2, rating: 4.1, logoColor: '#EF4444' },
+  { id: 'i5', company: 'Ivoire Rapide', route: 'Abidjan - Touba', departTime: '06:30', arriveTime: '18:00', price: '11000', type: 'Longue Distance', seatsLeft: 19, rating: 4.2, logoColor: '#EF4444' },
 ];
 
-const TRAJETS = [
-  { id: 'sb-1', compagnie: 'sbta', depart: 'Adjamé', destination: 'Gagnoa', heureDepart: '06:00', heureArrivee: '10:00', prix: 3500, siegesDisponibles: 14 },
-  { id: 'av-1', compagnie: 'avs', depart: 'Bouaké', destination: 'Abidjan', heureDepart: '09:00', heureArrivee: '14:00', prix: 6000, siegesDisponibles: 25 },
-  { id: 'ut-1', compagnie: 'utb', depart: 'Gesco', destination: 'Yamoussoukro', heureDepart: '06:15', heureArrivee: '09:00', prix: 5000, siegesDisponibles: 18 },
-  { id: 'ut-2', compagnie: 'utb', depart: 'Gesco', destination: 'Man', heureDepart: '07:15', heureArrivee: '15:30', prix: 12000, siegesDisponibles: 10 },
-];
+export default function TicketsScreen() {
+  const router = useRouter();
+  const [depart, setDepart] = useState('Abidjan');
+  const [arrivee, setArrivee] = useState('');
+  const [date, setDate] = useState("Aujourd'hui");
 
-const MOYENS_PAIEMENT = [
-  { id: 'wave', image: require('../../assets/images/compagnies/wave.png') },
-  { id: 'orange', image: require('../../assets/images/compagnies/orange.png') },
-  { id: 'mtn', image: require('../../assets/images/compagnies/mtn.png') },
-  { id: 'moov', image: require('../../assets/images/compagnies/moov.png') },
-];
-
-export default function TicketsUltraPremium() {
-  const [selectedCompagnie, setSelectedCompagnie] = useState(null);
-  const [selectedTrajet, setSelectedTrajet] = useState(null);
-  const [modalVisible, setModalVisible] = useState(false);
-  
-  // États du formulaire
-  const [nom, setNom] = useState('');
-  const [telephone, setTelephone] = useState('');
-  const [nbPlaces, setNbPlaces] = useState(1);
-  const [typeBillet, setTypeBillet] = useState('Simple'); // 'Simple' ou 'Retour'
-  const [selectedMethod, setSelectedMethod] = useState('wave');
-
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
-  }, []);
-
-  const calculerTotal = () => {
-    if (!selectedTrajet) return 0;
-    const multiplicateur = typeBillet === 'Retour' ? 1.8 : 1; // Petite réduction sur l'aller-retour
-    return Math.round(selectedTrajet.prix * nbPlaces * multiplicateur);
-  };
-
-  const handleValidation = () => {
-    if (!nom || !telephone) {
-      Alert.alert("Erreur", "Veuillez remplir toutes les informations du passager.");
-      return;
-    }
-    Alert.alert("Succès", `Réservation de ${nbPlaces} place(s) confirmée pour ${nom}. Redirection vers le paiement...`);
-    setModalVisible(false);
+  // 🌟 FONCTION D'ACHAT DU BILLET
+  const handleBooking = (trip: any) => {
+    Alert.alert(
+      "Confirmation d'achat",
+      `Voulez-vous réserver un billet pour le trajet ${trip.route} avec ${trip.company} au prix de ${trip.price} FCFA ?\n\nDépart à ${trip.departTime}.`,
+      [
+        {
+          text: "Annuler",
+          style: "cancel"
+        },
+        {
+          text: "Payer",
+          onPress: () => {
+            // Ici tu mettras plus tard l'appel API vers ton système de paiement (Wave, Orange Money...)
+            Alert.alert(
+              "Succès 🎉", 
+              `Votre billet pour ${trip.route} a été généré avec succès ! Vous le retrouverez dans l'onglet Profil.`
+            );
+          }
+        }
+      ]
+    );
   };
 
   return (
-    <View style={styles.mainContainer}>
-      <StatusBar barStyle="light-content" />
-      <ScrollView showsVerticalScrollIndicator={false}>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" />
+      
+      <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="chevron-back" size={24} color="#1D1D1F" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Billets de Bus</Text>
+          <View style={{ width: 40 }} />
+        </View>
+      </SafeAreaView>
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         
-        <View style={styles.headerContainer}>
-          <Text style={styles.mainTitle}>Gares & Trajets</Text>
-          <Text style={styles.subTitle}>Réservez votre ticket (2026)</Text>
+        <View style={styles.searchCard}>
+          <View style={styles.inputGroup}>
+            <Ionicons name="location-outline" size={20} color="#86868B" />
+            <TextInput 
+              style={styles.input} 
+              value={depart} 
+              onChangeText={setDepart} 
+              placeholder="Ville de départ" 
+              placeholderTextColor="#86868B"
+            />
+          </View>
+          
+          <View style={styles.divider} />
+          
+          <View style={styles.inputGroup}>
+            <Ionicons name="flag-outline" size={20} color="#FF6B35" />
+            <TextInput 
+              style={styles.input} 
+              value={arrivee} 
+              onChangeText={setArrivee} 
+              placeholder="Où allez-vous ?" 
+              placeholderTextColor="#86868B"
+            />
+          </View>
+
+          <View style={styles.divider} />
+
+          <TouchableOpacity style={styles.inputGroup}>
+            <Ionicons name="calendar-outline" size={20} color="#86868B" />
+            <Text style={styles.dateText}>{date}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.searchBtn}>
+            <Text style={styles.searchBtnTxt}>Rechercher un trajet</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* --- SECTION COMPAGNIES --- */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Compagnies d'élite</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalScroll}>
-            <TouchableOpacity onPress={() => setSelectedCompagnie(null)} style={[styles.compCard, !selectedCompagnie && { borderColor: '#FFF', borderWidth: 2 }]}>
-              <LinearGradient colors={['#1A1A2E', '#16213E']} style={styles.allButtonGradient}>
-                <Ionicons name="grid" size={24} color="#FFF" />
-              </LinearGradient>
-            </TouchableOpacity>
-            {COMPAGNIES.map((c) => (
-              <TouchableOpacity key={c.id} onPress={() => setSelectedCompagnie(c.id)} style={[styles.compCard, selectedCompagnie === c.id && { borderColor: c.bgColor, borderWidth: 2.5 }]}>
-                 <Image source={c.image} style={styles.logoImage} />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* --- LISTE DES TRAJETS --- */}
-        <View style={styles.contentBody}>
-          <Text style={styles.sectionTitle}>Départs programmés</Text>
-          <Animated.View style={{ opacity: fadeAnim }}>
-            {TRAJETS.filter(t => !selectedCompagnie || t.compagnie === selectedCompagnie).map((trajet) => {
-                const comp = COMPAGNIES.find(c => c.id === trajet.compagnie) || COMPAGNIES[0];
-                return (
-                <View key={trajet.id} style={[styles.ultraCard, { backgroundColor: comp.bgColor }]}>
-                    <View style={styles.cardTop}>
-                      <Text style={[styles.brandName, { color: comp.textColor }]}>{comp.nom}</Text>
-                      <View style={styles.seatBadge}><Text style={[styles.seatText, { color: comp.textColor }]}>{trajet.siegesDisponibles} PLACES</Text></View>
+        <View style={styles.resultsSection}>
+          <Text style={styles.sectionTitle}>Départs disponibles ({BUS_TRIPS.length})</Text>
+          
+          {BUS_TRIPS.map((trip) => (
+            <TouchableOpacity key={trip.id} activeOpacity={0.8} style={styles.tripCard}>
+              
+              <View style={styles.tripHeader}>
+                <View style={styles.companyRow}>
+                  <View style={[styles.companyLogo, { backgroundColor: trip.logoColor + '15' }]}>
+                    <FontAwesome5 name="bus-alt" size={16} color={trip.logoColor} />
+                  </View>
+                  <View>
+                    <Text style={styles.companyName}>{trip.company}</Text>
+                    <View style={styles.ratingRow}>
+                      <Ionicons name="star" size={12} color="#F59E0B" />
+                      <Text style={styles.ratingTxt}>{trip.rating}</Text>
+                      <Text style={styles.typeTxt}> • {trip.type}</Text>
                     </View>
-                    <View style={styles.routeBox}>
-                      <Text style={[styles.timeBig, { color: comp.textColor }]}>{trajet.heureDepart} → {trajet.heureArrivee}</Text>
-                      <Text style={[styles.cityText, { color: comp.textColor }]}>{trajet.depart} - {trajet.destination}</Text>
-                    </View>
-                    <View style={[styles.cardFooter, { borderTopColor: 'rgba(255,255,255,0.2)' }]}>
-                      <Text style={[styles.priceBig, { color: comp.textColor }]}>{trajet.prix.toLocaleString()} FCFA</Text>
-                      <TouchableOpacity style={styles.mainBtn} onPress={() => { setSelectedTrajet(trajet); setModalVisible(true); }}>
-                          <LinearGradient colors={comp.btnGradient} style={styles.btnGrad}><Text style={styles.btnText}>RÉSERVER</Text></LinearGradient>
-                      </TouchableOpacity>
-                    </View>
+                  </View>
                 </View>
-                );
-            })}
-          </Animated.View>
+                <Text style={styles.price}>
+                  {trip.price} <Text style={styles.currency}>FCFA</Text>
+                </Text>
+              </View>
+
+              <View style={styles.dashedLine} />
+
+              <View style={styles.routeRow}>
+                <View style={styles.timeColumn}>
+                  <Text style={styles.time}>{trip.departTime}</Text>
+                  <Text style={styles.city}>{trip.route.split(' - ')[0]}</Text>
+                </View>
+                
+                <View style={styles.routeVisual}>
+                  <View style={styles.routeDot} />
+                  <View style={styles.routeLine} />
+                  <View style={[styles.routeDot, { backgroundColor: '#FF6B35', borderColor: '#FF6B35' }]} />
+                </View>
+
+                <View style={styles.timeColumnRight}>
+                  <Text style={styles.time}>{trip.arriveTime}</Text>
+                  <Text style={styles.city}>{trip.route.split(' - ')[1]}</Text>
+                </View>
+              </View>
+
+              <View style={styles.tripFooter}>
+                <Text style={[styles.seatsTxt, trip.seatsLeft <= 5 && { color: '#EF4444' }]}>
+                  {trip.seatsLeft} {trip.seatsLeft > 1 ? 'places restantes' : 'place restante'}
+                </Text>
+                
+                {/* 🌟 APPEL DE LA FONCTION D'ACHAT AU CLIC SUR LE BOUTON */}
+                <TouchableOpacity 
+                  style={styles.bookBtn}
+                  onPress={() => handleBooking(trip)}
+                >
+                  <Text style={styles.bookBtnTxt}>Acheter</Text>
+                </TouchableOpacity>
+              </View>
+
+            </TouchableOpacity>
+          ))}
+
         </View>
-        <View style={{ height: 100 }} />
       </ScrollView>
-
-      {/* --- MODALE DE RÉSERVATION COMPLÈTE --- */}
-      <Modal animationType="slide" transparent={true} visible={modalVisible}>
-        <View style={styles.modalOverlay}>
-            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalContent}>
-                <ScrollView showsVerticalScrollIndicator={false}>
-                    <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>Détails de réservation</Text>
-                        <TouchableOpacity onPress={() => setModalVisible(false)}><Ionicons name="close-circle" size={32} color="#888" /></TouchableOpacity>
-                    </View>
-
-                    {/* Résumé rapide */}
-                    {selectedTrajet && (
-                        <View style={styles.summaryCard}>
-                            <Text style={styles.summaryRoute}>{selectedTrajet.depart} ➔ {selectedTrajet.destination}</Text>
-                            <Text style={styles.summaryInfo}>{selectedTrajet.heureDepart} | Gare de départ : {selectedTrajet.depart}</Text>
-                        </View>
-                    )}
-
-                    {/* Formulaire */}
-                    <Text style={styles.inputLabel}>Nom complet du passager</Text>
-                    <TextInput style={styles.input} placeholder="Ex: Jean Marc" value={nom} onChangeText={setNom} />
-
-                    <Text style={styles.inputLabel}>Numéro de téléphone</Text>
-                    <TextInput style={styles.input} placeholder="07 00 00 00 00" keyboardType="phone-pad" value={telephone} onChangeText={setTelephone} />
-
-                    <View style={styles.formRow}>
-                        <View style={{ flex: 1, marginRight: 10 }}>
-                            <Text style={styles.inputLabel}>Places</Text>
-                            <View style={styles.counterRow}>
-                                <TouchableOpacity onPress={() => setNbPlaces(Math.max(1, nbPlaces - 1))} style={styles.counterBtn}><Ionicons name="remove" size={20} color="#1A1A2E" /></TouchableOpacity>
-                                <Text style={styles.counterText}>{nbPlaces}</Text>
-                                <TouchableOpacity onPress={() => setNbPlaces(nbPlaces + 1)} style={styles.counterBtn}><Ionicons name="add" size={20} color="#1A1A2E" /></TouchableOpacity>
-                            </View>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.inputLabel}>Type</Text>
-                            <View style={styles.typeRow}>
-                                <TouchableOpacity onPress={() => setTypeBillet('Simple')} style={[styles.typeBtn, typeBillet === 'Simple' && styles.typeBtnActive]}><Text style={[styles.typeBtnText, typeBillet === 'Simple' && {color: '#FFF'}]}>Simple</Text></TouchableOpacity>
-                                <TouchableOpacity onPress={() => setTypeBillet('Retour')} style={[styles.typeBtn, typeBillet === 'Retour' && styles.typeBtnActive]}><Text style={[styles.typeBtnText, typeBillet === 'Retour' && {color: '#FFF'}]}>A / R</Text></TouchableOpacity>
-                            </View>
-                        </View>
-                    </View>
-
-                    <Text style={styles.inputLabel}>Moyen de paiement</Text>
-                    <View style={styles.paymentRow}>
-                        {MOYENS_PAIEMENT.map((methode) => (
-                            <TouchableOpacity key={methode.id} onPress={() => setSelectedMethod(methode.id)} style={[styles.payBtn, selectedMethod === methode.id && styles.payBtnActive]}>
-                                <Image source={methode.image} style={styles.payIcon}/>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-
-                    <View style={styles.totalContainer}>
-                        <Text style={styles.totalLabel}>TOTAL À PAYER</Text>
-                        <Text style={styles.totalAmount}>{calculerTotal().toLocaleString()} FCFA</Text>
-                    </View>
-
-                    <TouchableOpacity style={styles.confirmBtn} onPress={handleValidation}>
-                        <Text style={styles.confirmText}>CONFIRMER & PAYER</Text>
-                    </TouchableOpacity>
-                    <View style={{ height: 40 }} />
-                </ScrollView>
-            </KeyboardAvoidingView>
-        </View>
-      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  mainContainer: { flex: 1, backgroundColor: '#0A0A15' },
-  headerContainer: { paddingTop: 60, paddingHorizontal: 25 },
-  mainTitle: { color: '#FFF', fontSize: 28, fontWeight: '900' },
-  subTitle: { color: '#666', fontSize: 14 },
-  section: { marginTop: 25 },
-  sectionTitle: { color: '#FFF', fontSize: 18, fontWeight: '800', marginLeft: 25, marginBottom: 15 },
-  horizontalScroll: { paddingLeft: 25 },
-  compCard: { width: 70, height: 70, backgroundColor: '#FFF', borderRadius: 20, marginRight: 15, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
-  allButtonGradient: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
-  logoImage: { width: 50, height: 50, resizeMode: 'contain' },
-  contentBody: { paddingHorizontal: 20, marginTop: 20 },
-  ultraCard: { borderRadius: 25, padding: 22, marginBottom: 15 },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  brandName: { fontSize: 20, fontWeight: '900' },
-  seatBadge: { backgroundColor: 'rgba(0,0,0,0.1)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  seatText: { fontSize: 10, fontWeight: 'bold' },
-  routeBox: { marginVertical: 20 },
-  timeBig: { fontSize: 26, fontWeight: '900' },
-  cityText: { fontSize: 14, fontWeight: 'bold', textTransform: 'uppercase' },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 15, borderTopWidth: 1.5 },
-  priceBig: { fontSize: 22, fontWeight: '900' },
-  mainBtn: { width: '45%' },
-  btnGrad: { paddingVertical: 12, borderRadius: 15, alignItems: 'center' },
-  btnText: { color: '#FFF', fontWeight: '900' },
-
-  // --- MODALE ---
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: '#FFF', borderTopLeftRadius: 35, borderTopRightRadius: 35, padding: 25, height: height * 0.85 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  modalTitle: { fontSize: 22, fontWeight: '900', color: '#1A1A2E' },
-  summaryCard: { backgroundColor: '#F0F2F5', padding: 15, borderRadius: 20, marginBottom: 20 },
-  summaryRoute: { fontSize: 18, fontWeight: 'bold', color: '#1A1A2E' },
-  summaryInfo: { fontSize: 12, color: '#666', marginTop: 4 },
-  inputLabel: { fontSize: 14, fontWeight: '700', color: '#888', marginBottom: 8, marginTop: 10 },
-  input: { backgroundColor: '#F0F2F5', borderRadius: 15, padding: 15, fontSize: 16, color: '#1A1A2E' },
-  formRow: { flexDirection: 'row', marginTop: 10 },
-  counterRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0F2F5', borderRadius: 15, padding: 5, justifyContent: 'space-between' },
-  counterBtn: { width: 35, height: 35, backgroundColor: '#FFF', borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
-  counterText: { fontSize: 18, fontWeight: '900', color: '#1A1A2E' },
-  typeRow: { flexDirection: 'row', backgroundColor: '#F0F2F5', borderRadius: 15, padding: 5 },
-  typeBtn: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 10 },
-  typeBtnActive: { backgroundColor: '#1A1A2E' },
-  typeBtnText: { fontWeight: '700', color: '#666' },
-  paymentRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 5 },
-  payBtn: { width: '30%', height: 70, backgroundColor: '#FFF', borderRadius: 15, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#EEE' },
-  payBtnActive: { borderColor: '#E67E22', backgroundColor: '#FFF9F5' },
-  payIcon: { width: 45, height: 45, resizeMode: 'contain' },
-  totalContainer: { marginTop: 25, alignItems: 'center', backgroundColor: '#1A1A2E', padding: 20, borderRadius: 20 },
-  totalLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: 'bold' },
-  totalAmount: { color: '#FFD700', fontSize: 28, fontWeight: '900', marginTop: 5 },
-  confirmBtn: { backgroundColor: '#E30613', paddingVertical: 20, borderRadius: 20, alignItems: 'center', marginTop: 20 },
-  confirmText: { color: '#FFF', fontWeight: '900', fontSize: 16 }
+  container: { flex: 1, backgroundColor: '#F5F5F7' },
+  headerSafeArea: { backgroundColor: '#FFFFFF' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 15, paddingTop: 10 },
+  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F5F5F7', justifyContent: 'center', alignItems: 'center' },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#1D1D1F' },
+  scrollContent: { paddingBottom: 120 },
+  searchCard: { margin: 20, padding: 20, backgroundColor: '#FFFFFF', borderRadius: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.05, shadowRadius: 15, elevation: 4 },
+  inputGroup: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
+  input: { flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: '#1D1D1F' },
+  dateText: { marginLeft: 12, fontSize: 16, fontWeight: '600', color: '#1D1D1F' },
+  divider: { height: 1, backgroundColor: '#F5F5F7', marginLeft: 32 },
+  searchBtn: { backgroundColor: '#FF6B35', paddingVertical: 16, borderRadius: 16, alignItems: 'center', marginTop: 15 },
+  searchBtnTxt: { color: '#FFFFFF', fontWeight: '800', fontSize: 16 },
+  resultsSection: { paddingHorizontal: 20 },
+  sectionTitle: { fontSize: 20, fontWeight: '800', color: '#1D1D1F', marginBottom: 15 },
+  tripCard: { backgroundColor: '#FFFFFF', borderRadius: 24, padding: 20, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.04, shadowRadius: 12, elevation: 3 },
+  tripHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  companyRow: { flexDirection: 'row', alignItems: 'center' },
+  companyLogo: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  companyName: { fontSize: 16, fontWeight: '800', color: '#1D1D1F' },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
+  ratingTxt: { fontSize: 12, fontWeight: '700', color: '#86868B', marginLeft: 4 },
+  typeTxt: { fontSize: 12, fontWeight: '500', color: '#86868B' },
+  price: { fontSize: 18, fontWeight: '900', color: '#FF6B35' },
+  currency: { fontSize: 12, fontWeight: '700' },
+  dashedLine: { height: 1, borderBottomWidth: 1, borderColor: '#E5E5EA', borderStyle: 'dashed', marginVertical: 16 },
+  routeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  timeColumn: { flex: 1, alignItems: 'flex-start' },
+  timeColumnRight: { flex: 1, alignItems: 'flex-end' },
+  time: { fontSize: 18, fontWeight: '900', color: '#1D1D1F' },
+  city: { fontSize: 13, fontWeight: '600', color: '#86868B', marginTop: 2 },
+  routeVisual: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  routeDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: '#D1D5DB', backgroundColor: '#FFFFFF' },
+  routeLine: { flex: 1, height: 2, backgroundColor: '#E5E5EA', marginHorizontal: 4 },
+  tripFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20 },
+  seatsTxt: { fontSize: 13, fontWeight: '600', color: '#10B981' },
+  bookBtn: { backgroundColor: '#1D1D1F', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12 },
+  bookBtnTxt: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
 });

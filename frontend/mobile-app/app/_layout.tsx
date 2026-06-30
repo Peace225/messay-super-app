@@ -1,52 +1,90 @@
 import { useEffect } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useRouter, useSegments, useRootNavigationState } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '../src/store/authStore';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Text } from 'react-native';
 
 const queryClient = new QueryClient();
 
 export default function RootLayout() {
-  const { loadAuthData, isLoading, isAuthenticated } = useAuthStore();
+  const { loadAuthData, isLoading, isAuthenticated, user } = useAuthStore();
   const segments = useSegments();
   const router = useRouter();
+  const navigationState = useRootNavigationState();
 
-  // 1. Charger les données d'auth au démarrage
+  // 1. Chargement initial des données de session au démarrage
   useEffect(() => {
     loadAuthData();
   }, []);
 
-  // 2. Gérer la navigation protégée
+  // 2. Gardien de la navigation (Logique de redirection)
   useEffect(() => {
-    if (isLoading) return; // On ne fait rien tant que ça charge
+    // On attend que le moteur de navigation et les données soient prêts
+    const isNavReady = navigationState?.key;
+    if (isLoading || !isNavReady) return;
 
-    const inAuthGroup = segments[0] === '(auth)';
+    const rootSegment = segments[0];
+    const inAuthGroup = rootSegment === '(auth)';
+    const inTabsGroup = rootSegment === '(tabs)';
 
-    if (!isAuthenticated && !inAuthGroup) {
-      // Si l'utilisateur n'est pas connecté et n'est pas sur les pages de login/register
-      router.replace('/login');
-    } else if (isAuthenticated && inAuthGroup) {
-      // Si l'utilisateur est connecté mais se trouve encore sur le login
-      router.replace('/(tabs)/home');
+    // 🛡️ CAS 1 : UTILISATEUR NON CONNECTÉ
+    if (!isAuthenticated) {
+      if (!inAuthGroup) {
+        console.log("🔒 Accès refusé -> Redirection Login");
+        router.replace('/login');
+      }
+      return; 
     }
-  }, [isAuthenticated, segments, isLoading]);
 
-  // Écran de chargement Premium pendant la vérification du token
-  if (isLoading) {
+    // 🛡️ CAS 2 : UTILISATEUR CONNECTÉ (Aiguillage par rôle)
+    if (isAuthenticated && user) {
+      const role = user.role;
+      console.log(`👤 Utilisateur connecté [${role}] sur le segment : /${rootSegment || ''}`);
+
+      // Logique pour CONDUCTEUR (Moussa)
+      if (role === 'CONDUCTEUR') {
+        if (rootSegment !== 'conducteur-dashboard') {
+          console.log("🛺 Redirection -> Dashboard Conducteur");
+          router.replace('/conducteur-dashboard');
+        }
+      } 
+      // Logique pour CHAUFFEUR (Ibrahim)
+      else if (role === 'CHAUFFEUR') {
+        if (rootSegment !== 'chauffeur-dashboard') {
+          console.log("🚚 Redirection -> Dashboard Chauffeur");
+          router.replace('/chauffeur-dashboard');
+        }
+      } 
+      // Logique pour USER / CLIENT (Le rôle par défaut dans Supabase)
+      else if (role === 'USER' || role === 'CLIENT') {
+        if (inAuthGroup || rootSegment === undefined || rootSegment === 'index') {
+          console.log("📱 Redirection -> Home Client (Tabs)");
+          router.replace('/home');
+        }
+      }
+    }
+  }, [isAuthenticated, user, segments, isLoading, navigationState?.key]);
+
+  // Écran de Splash Screen Premium
+  if (isLoading || !navigationState?.key) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' }}>
-        <ActivityIndicator size="large" color="#FF6B35" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#050810' }}>
+        <ActivityIndicator size="large" color="#FF8C00" />
+        <Text style={{ color: '#94a3b8', marginTop: 20, fontWeight: '700', letterSpacing: 1 }}>
+          MESSAY LOGISTICS
+        </Text>
       </View>
     );
   }
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Stack screenOptions={{ headerShown: false }}>
-        {/* On définit les groupes de routes */}
+      <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
         <Stack.Screen name="index" />
-        <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
-        <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="conducteur-dashboard" options={{ gestureEnabled: false }} />
+        <Stack.Screen name="chauffeur-dashboard" options={{ gestureEnabled: false }} />
       </Stack>
     </QueryClientProvider>
   );

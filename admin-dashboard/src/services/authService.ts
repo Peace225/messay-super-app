@@ -6,27 +6,36 @@ export interface LoginData {
 }
 
 /**
- * Service d'authentification pour l'admin
+ * Service d'authentification pour l'admin MESSAY
  */
 export const authService = {
   /**
    * Connexion admin
    */
   async login(data: LoginData) {
-    const response = await api.post('/auth/login', data);
-    const { user, accessToken, refreshToken } = response.data;
+    try {
+      const response = await api.post('/auth/login', data);
+      
+      // On extrait les données (attention à bien vérifier la structure de response.data)
+      const { user, accessToken, refreshToken } = response.data;
 
-    // Vérifier que c'est un admin
-    if (user.role !== 'ADMIN') {
-      throw new Error('Accès refusé. Seuls les administrateurs peuvent se connecter.');
+      // 🛑 Sécurité : Vérifier le rôle ADMIN
+      if (user.role !== 'ADMIN') {
+        throw new Error('Accès refusé. Réservé aux administrateurs.');
+      }
+
+      // ✅ Sauvegarde des tokens pour les intercepteurs Axios
+      localStorage.setItem('accessToken', accessToken);
+      localStorage.setItem('refreshToken', refreshToken);
+
+      // On retourne l'objet complet pour le Store
+      return { user, accessToken, refreshToken };
+      
+    } catch (error: any) {
+      // On propage l'erreur exacte du backend pour l'afficher sur la LoginPage
+      const message = error.response?.data?.message || error.message || "Erreur de connexion";
+      throw new Error(message);
     }
-
-    // Sauvegarder les tokens
-    localStorage.setItem('accessToken', accessToken);
-    localStorage.setItem('refreshToken', refreshToken);
-    localStorage.setItem('user', JSON.stringify(user));
-
-    return { user, accessToken, refreshToken };
   },
 
   /**
@@ -35,19 +44,11 @@ export const authService = {
   logout() {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
+    // Le reste sera nettoyé par le logout du Store Zustand
   },
 
   /**
-   * Obtenir l'utilisateur connecté
-   */
-  getCurrentUser() {
-    const userStr = localStorage.getItem('user');
-    return userStr ? JSON.parse(userStr) : null;
-  },
-
-  /**
-   * Vérifier si l'utilisateur est connecté
+   * Vérifier si un token existe toujours
    */
   isAuthenticated() {
     return !!localStorage.getItem('accessToken');

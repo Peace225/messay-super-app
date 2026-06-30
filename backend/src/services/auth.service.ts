@@ -3,105 +3,87 @@ import { UserRepository } from '../repositories/user.repository';
 import { generateAccessToken, generateRefreshToken } from '../utils/jwt';
 import { RegisterInput, LoginInput } from '../validators/auth.validator';
 
-/**
- * Service d'authentification de MESSAY
- */
 export class AuthService {
   /**
-   * Inscription d'un nouvel utilisateur
+   * Inscription Directe (Zéro Friction)
    */
   async register(data: RegisterInput) {
-    // 1. Vérifier si l'email ou le téléphone existe déjà via le Repository
-    const userExists = await UserRepository.exists(data.email, data.telephone);
-    
-    if (userExists) {
-      throw new Error('Cet email ou ce numéro de téléphone est déjà utilisé');
-    }
+    // 1. On vérifie uniquement le téléphone en utilisant findByTelephone de votre Repository
+    const existingUser = await UserRepository.findByTelephone(data.telephone!);
+    if (existingUser) throw new Error('Ce numéro de téléphone est déjà utilisé');
 
-    // 2. Hasher le mot de passe
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
-    // 3. Générer l'OTP
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    // 🛠️ LOGIQUE SUPABASE : Génération d'un email technique pour satisfaire la contrainte UNIQUE
+    const technicalEmail = `${data.telephone!.replace('+', '')}@messay.ci`;
 
-    // 4. Créer l'utilisateur via le Repository
     const user = await UserRepository.create({
-      nom: data.nom,
-      prenom: data.prenom,
-      email: data.email,
+      nom: data.nom || `Membre ${data.telephone!.slice(-4)}`,
+      prenom: data.prenom || '',
+      email: technicalEmail, // Email généré automatiquement
       telephone: data.telephone,
       password: hashedPassword,
       role: data.role || 'USER',
-      otpCode,
-      otpExpiry,
+      isVerified: true, // ✅ Activation immédiate (plus d'envoi de code)
     });
 
-    // TODO: Intégrer un service SMS réel (ex: Twilio ou Wave SMS)
-    console.log(`📱 Code OTP pour ${data.telephone}: ${otpCode}`);
-
-    // On retire le mot de passe de l'objet retourné
-    const { password, otpCode: _, otpExpiry: __, ...userProfile } = user as any;
-
-    return {
-      user: userProfile,
-      message: 'Inscription réussie. Un code OTP a été envoyé.',
-      otpCode: process.env.NODE_ENV === 'development' ? otpCode : undefined,
-    };
+    const { password: p, ...userProfile } = user as any;
+    return { user: userProfile, message: 'Compte MESSAY créé avec succès' };
   }
 
   /**
-   * Connexion d'un utilisateur
+   * Connexion par Téléphone OU Email (Pour l'Admin Dashboard)
    */
   async login(data: LoginInput) {
-    // 1. Trouver l'utilisateur via le Repository
-    const user = await UserRepository.findByEmail(data.email);
+    const identifiant = data.email || data.telephone;
+    console.log(`🔑 Tentative de connexion pour: ${identifiant}`);
 
-    if (!user) {
-      throw new Error('Email ou mot de passe incorrect');
+    let user: any = null;
+
+    // 2. On cherche par email si c'est fourni, sinon on cherche par téléphone
+    if (data.email) {
+      // Utilisation directe et propre de votre méthode findByEmail
+      user = await UserRepository.findByEmail(data.email);
+    } else if (data.telephone) {
+      user = await UserRepository.findByTelephone(data.telephone);
     }
 
-    // 2. Vérifier le mot de passe
+    if (!user) throw new Error('Identifiant ou mot de passe incorrect');
+
     const isPasswordValid = await bcrypt.compare(data.password, user.password);
-    if (!isPasswordValid) {
-      throw new Error('Email ou mot de passe incorrect');
-    }
+    if (!isPasswordValid) throw new Error('Identifiant ou mot de passe incorrect');
 
-    // 3. Générer les tokens (Access + Refresh)
-    const payload = { userId: user.id, email: user.email, role: user.role };
+    const payload = { userId: user.id, telephone: user.telephone, email: user.email, role: user.role };
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
-    // 4. Sauvegarder le refresh token via le Repository
-    await UserRepository.update(user.id, { refreshToken });
+    try {
+      // Mise à jour de la session sur Supabase
+      const updatedUser = await UserRepository.update(user.id, { refreshToken });
+      console.log("✅ Session synchronisée sur Supabase");
 
-    const { password, ...userProfile } = user;
-    return {
-      user: userProfile,
-      accessToken,
-      refreshToken,
-    };
+      const profile = { ...updatedUser } as any;
+      delete profile.password;
+      delete profile.refreshToken;
+
+      return {
+        user: profile,
+        accessToken,
+        refreshToken,
+      };
+    } catch (error: any) {
+      console.error("💥 Erreur DB:", error.message);
+      throw new Error("Erreur technique lors de la création de session.");
+    }
   }
 
-  /**
-   * Vérification du code OTP
-   */
+  // Ces méthodes restent pour la structure mais ne sont plus appelées par ton nouveau flux
   async verifyOTP(telephone: string, otpCode: string) {
-    const user = await UserRepository.findByTelephone(telephone);
+    return { message: "Flux direct activé : vérification non requise" };
+  }
 
-    if (!user) throw new Error('Utilisateur non trouvé');
-    if (user.isVerified) throw new Error('Compte déjà vérifié');
-    if (!user.otpCode || !user.otpExpiry) throw new Error('Aucun code OTP trouvé');
-    if (new Date() > user.otpExpiry) throw new Error('Code OTP expiré');
-    if (user.otpCode !== otpCode) throw new Error('Code OTP invalide');
-
-    // Mettre à jour le statut via le Repository
-    await UserRepository.update(user.id, {
-      isVerified: true,
-      otpCode: null,
-      otpExpiry: null,
-    });
-
-    return { message: 'Compte vérifié avec succès' };
+  async refreshToken(token: string) {
+    // Ta logique habituelle pour renouveler le JWT
+    return { accessToken: "..." };
   }
 }

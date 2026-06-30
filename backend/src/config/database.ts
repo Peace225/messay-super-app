@@ -1,13 +1,16 @@
 import { PrismaClient } from '@prisma/client';
+import dotenv from 'dotenv';
 
-// Instance unique de Prisma Client (Singleton)
+// Charger les variables d'environnement
+dotenv.config();
+
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL n'est pas défini dans le fichier .env");
+}
+
+// Initialisation simple et efficace
 const prisma = new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-});
-
-// Gestion de la déconnexion propre
-process.on('beforeExit', async () => {
-  await prisma.$disconnect();
 });
 
 export default prisma;

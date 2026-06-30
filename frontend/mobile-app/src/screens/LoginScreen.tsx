@@ -1,16 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Dimensions,
-  StatusBar, // 👈 CORRECTION : Ajout de l'import
+  View, Text, TextInput, TouchableOpacity, StyleSheet, Alert,
+  ActivityIndicator, KeyboardAvoidingView, Platform, Dimensions,
+  StatusBar, ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/authStore'; 
@@ -22,40 +14,49 @@ const { width, height } = Dimensions.get('window');
 
 export default function LoginScreen() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
+  const [telephone, setTelephone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const { setUser, setTokens, isAuthenticated } = useAuthStore();
+  const { user, setUser, setTokens, isAuthenticated, isLoading: authLoading } = useAuthStore();
 
   useEffect(() => {
-    if (isAuthenticated) {
-      const timeout = setTimeout(() => {
-        router.replace('/(tabs)/home');
-      }, 100);
-      return () => clearTimeout(timeout);
+    if (!authLoading && isAuthenticated && user) {
+      const timer = setTimeout(() => handleRedirect(user.role), 100);
+      return () => clearTimeout(timer);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user, authLoading]);
+
+  const handleRedirect = (role) => {
+    if (role === 'CHAUFFEUR') router.replace('/chauffeur-dashboard');
+    else if (role === 'CONDUCTEUR') router.replace('/conducteur-dashboard');
+    else router.replace('/home'); 
+  };
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Champs requis', 'Veuillez entrer vos identifiants.');
+    if (!telephone.trim() || !password.trim()) {
+      Alert.alert('Champs requis', 'Veuillez entrer votre numéro et votre mot de passe.');
       return;
     }
+    let cleanPhone = telephone.replace(/[^0-9]/g, '');
+    if (cleanPhone.startsWith('225')) cleanPhone = cleanPhone.substring(3);
+    const formattedTelephone = `+225${cleanPhone}`;
 
     setLoading(true);
     try {
-      const result = await authService.login({ email, password });
-      
+      const result = await authService.login({ telephone: formattedTelephone, password });
       if (result.user && result.accessToken) {
         await setTokens(result.accessToken, result.refreshToken);
         await setUser(result.user);
-      } else {
-        Alert.alert('Erreur', 'Réponse du serveur incomplète.');
       }
-    } catch (error: any) {
-      Alert.alert('Échec', error.response?.data?.error || 'Email ou mot de passe incorrect');
+    } catch (error) {
+      const errorMsg = error.response?.data?.message || error.response?.data?.error;
+      if (!error.response) {
+        Alert.alert('Erreur Réseau', 'Le serveur est injoignable. Vérifie que ton PC et ton iPhone sont sur le même Wi-Fi.');
+      } else {
+        Alert.alert('Échec', errorMsg || 'Identifiants incorrects.');
+      }
     } finally {
       setLoading(false);
     }
@@ -63,163 +64,139 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      <LinearGradient colors={['#0f172a', '#1e293b', '#0f172a']} style={StyleSheet.absoluteFill} />
+      <StatusBar barStyle="light-content" />
+      <LinearGradient colors={['#050810', '#0f172a', '#050810']} style={StyleSheet.absoluteFill} />
       
-      {/* Éléments décoratifs Premium */}
-      <View style={styles.topLight} />
-      
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.innerContainer}
-      >
-        <View style={styles.headerSection}>
-          <View style={styles.logoContainer}>
-            <LinearGradient colors={['#FF8C00', '#FF6B35']} style={styles.logoCircle}>
-              <Ionicons name="flash" size={45} color="#fff" />
-            </LinearGradient>
-            <View style={styles.logoShadow} />
-          </View>
-          <Text style={styles.title}>MESSAY</Text>
-          <Text style={styles.subtitle}>L'excellence au service de la mobilité</Text>
-        </View>
+      {/* Premium glows */}
+      <View style={[styles.glow, { backgroundColor: '#FF8C00', top: -120, left: -80 }]} />
+      <View style={[styles.glow, { backgroundColor: '#6366f1', bottom: -100, right: -70 }]} />
 
-        <View style={styles.glassCard}>
-          <Text style={styles.label}>Adresse Email</Text>
-          <View style={styles.inputWrapper}>
-            <Ionicons name="mail-outline" size={20} color="#94a3b8" />
-            <TextInput
-              style={styles.input}
-              placeholder="votre@email.com"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              placeholderTextColor="#64748b"
-            />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          
+          <View style={styles.header}>
+            <View style={styles.logoWrap}>
+              <LinearGradient colors={['#FF8C00', '#ff6a00']} style={styles.logo}>
+                <Ionicons name="flash" size={42} color="#fff" />
+              </LinearGradient>
+              <View style={styles.logoHalo} />
+            </View>
+            <Text style={styles.brand}>MESSAY</Text>
+            <Text style={styles.tagline}>L'EXCELLENCE EN MOUVEMENT</Text>
           </View>
 
-          <Text style={styles.label}>Mot de passe</Text>
-          <View style={styles.inputWrapper}>
-            <Ionicons name="lock-closed-outline" size={20} color="#94a3b8" />
-            <TextInput
-              style={[styles.input, { flex: 1 }]}
-              placeholder="••••••••"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-              placeholderTextColor="#64748b"
-            />
-            <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-              <Ionicons 
-                name={showPassword ? 'eye-outline' : 'eye-off-outline'} 
-                size={22} 
-                color="#94a3b8" 
-              />
+          <View style={styles.card}>
+            <View style={styles.cardTop} />
+            
+            <Text style={styles.welcome}>Bon retour</Text>
+            <Text style={styles.welcomeSub}>Connectez-vous à votre espace</Text>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Numéro de téléphone</Text>
+              <View style={[styles.inputBox, telephone && styles.inputFocus]}>
+                <View style={styles.iconBox}>
+                  <Ionicons name="call" size={18} color="#FF8C00" />
+                </View>
+                <Text style={styles.prefix}>+225</Text>
+                <View style={styles.sep} />
+                <TextInput 
+                  style={styles.input} 
+                  placeholder="07 00 00" 
+                  placeholderTextColor="#475569"
+                  value={telephone} 
+                  onChangeText={setTelephone} 
+                  keyboardType="phone-pad" 
+                  maxLength={10}
+                />
+              </View>
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Mot de passe</Text>
+              <View style={[styles.inputBox, password && styles.inputFocus]}>
+                <View style={styles.iconBox}>
+                  <Ionicons name="lock-closed" size={18} color="#FF8C00" />
+                </View>
+                <TextInput 
+                  style={[styles.input, {flex:1}]} 
+                  placeholder="••••••••" 
+                  placeholderTextColor="#475569"
+                  value={password} 
+                  onChangeText={setPassword} 
+                  secureTextEntry={!showPassword} 
+                />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} hitSlop={10}>
+                  <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={20} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.actions}>
+              <TouchableOpacity onPress={() => router.push('/register')}>
+                <Text style={styles.linkLeft}>Créer un compte</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => Alert.alert("Infos", "Contactez le support.")}>
+                <Text style={styles.linkRight}>Mot de passe oublié ?</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity onPress={handleLogin} disabled={loading} activeOpacity={0.9} style={styles.btnWrap}>
+              <LinearGradient colors={['#FF8C00', '#ff6a00']} start={{x:0,y:0}} end={{x:1,y:0}} style={styles.btn}>
+                {loading ? <ActivityIndicator color="#fff" /> : (
+                  <View style={styles.btnContent}>
+                    <Text style={styles.btnText}>SE CONNECTER</Text>
+                    <Ionicons name="arrow-forward" size={20} color="#fff" />
+                  </View>
+                )}
+              </LinearGradient>
             </TouchableOpacity>
+
+            <View style={styles.secure}>
+              <Ionicons name="shield-checkmark" size={13} color="#22c55e" />
+              <Text style={styles.secureText}>Connexion sécurisée SSL</Text>
+            </View>
           </View>
-
-          <TouchableOpacity style={styles.forgotBtn}>
-            <Text style={styles.forgotText}>Mot de passe oublié ?</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.button} 
-            onPress={handleLogin} 
-            disabled={loading}
-          >
-            <LinearGradient 
-              colors={['#FF8C00', '#FF6B35']} 
-              style={styles.buttonGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Text style={styles.buttonText}>SE CONNECTER</Text>
-                  <Ionicons name="arrow-forward" size={20} color="#fff" style={{marginLeft: 10}} />
-                </>
-              )}
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity style={styles.footerBtn} onPress={() => router.push('/register')}>
-          <Text style={styles.footerText}>
-            Nouveau sur Messay ? <Text style={styles.footerLink}>Créer un compte</Text>
-          </Text>
-        </TouchableOpacity>
+        </ScrollView>
       </KeyboardAvoidingView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
-  topLight: {
-    position: 'absolute',
-    top: -height * 0.1,
-    left: width * 0.1,
-    width: width * 0.8,
-    height: width * 0.8,
-    backgroundColor: '#FF6B35',
-    borderRadius: width,
-    opacity: 0.1,
-    transform: [{ scaleX: 2 }],
-  },
-  innerContainer: { flex: 1, padding: 30, justifyContent: 'center' },
-  headerSection: { alignItems: 'center', marginBottom: 50 },
-  logoContainer: { marginBottom: 20, alignItems: 'center', justifyContent: 'center' },
-  logoCircle: { 
-    width: 90, 
-    height: 90, 
-    borderRadius: 30, // Design plus moderne (Squircle)
-    justifyContent: 'center', 
-    alignItems: 'center',
-    zIndex: 2,
-    elevation: 10,
-  },
-  logoShadow: {
-    position: 'absolute',
-    bottom: -10,
-    width: 70,
-    height: 20,
-    backgroundColor: '#FF6B35',
-    borderRadius: 35,
-    opacity: 0.3,
-    filter: 'blur(10px)',
-  },
-  title: { fontSize: 48, fontWeight: '900', color: '#fff', letterSpacing: 4 },
-  subtitle: { fontSize: 13, color: '#94a3b8', marginTop: 8, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 },
-  glassCard: {
-    width: '100%',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 30,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  label: { color: '#94a3b8', fontSize: 11, fontWeight: '800', marginBottom: 10, marginLeft: 5, textTransform: 'uppercase' },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
-    borderRadius: 20,
-    paddingHorizontal: 18,
-    height: 65,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  input: { flex: 1, color: '#fff', fontSize: 16, marginLeft: 15, fontWeight: '600' },
-  forgotBtn: { alignSelf: 'flex-end', marginBottom: 30 },
-  forgotText: { color: '#FF6B35', fontSize: 13, fontWeight: '700' },
-  button: { height: 65, borderRadius: 20, overflow: 'hidden', elevation: 15, shadowColor: '#FF6B35', shadowOpacity: 0.4, shadowRadius: 10 },
-  buttonGradient: { flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '900', letterSpacing: 1 },
-  footerBtn: { marginTop: 40, alignItems: 'center' },
-  footerText: { color: '#94a3b8', fontSize: 14, fontWeight: '500' },
-  footerLink: { color: '#fff', fontWeight: '900', textDecorationLine: 'underline' },
+  container: { flex: 1, backgroundColor: '#050810' },
+  glow: { position: 'absolute', width: width*0.85, height: width*0.85, borderRadius: 999, opacity: 0.14 },
+  scroll: { paddingHorizontal: 24, paddingTop: height*0.09, paddingBottom: 40, flexGrow: 1, justifyContent: 'center' },
+  
+  header: { alignItems: 'center', marginBottom: 40 },
+  logoWrap: { position: 'relative' },
+  logo: { width: 88, height: 88, borderRadius: 28, alignItems: 'center', justifyContent: 'center', shadowColor: '#FF8C00', shadowOpacity: 0.5, shadowRadius: 24, elevation: 12 },
+  logoHalo: { position: 'absolute', width: 110, height: 110, borderRadius: 34, borderWidth: 1, borderColor: 'rgba(255,140,0,0.18)', top: -11, left: -11 },
+  brand: { fontSize: 38, fontWeight: '900', color: '#fff', letterSpacing: 6, marginTop: 18 },
+  tagline: { fontSize: 11, color: '#94a3b8', marginTop: 6, fontWeight: '700', letterSpacing: 1.5 },
+  
+  card: { backgroundColor: 'rgba(15,23,42,0.75)', borderRadius: 30, padding: 26, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)' },
+  cardTop: { position: 'absolute', top: 0, left: 0, right: 0, height: 2, backgroundColor: '#FF8C00', opacity: 0.5, borderTopLeftRadius: 30, borderTopRightRadius: 30 },
+  welcome: { color: '#fff', fontSize: 24, fontWeight: '800' },
+  welcomeSub: { color: '#64748b', fontSize: 14, marginTop: 4, marginBottom: 26 },
+  
+  field: { marginBottom: 18 },
+  label: { color: '#94a3b8', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', marginBottom: 9, letterSpacing: 0.6 },
+  inputBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#020617', height: 58, borderRadius: 16, borderWidth: 1.5, borderColor: '#1e293b', paddingHorizontal: 4 },
+  inputFocus: { borderColor: '#FF8C00', backgroundColor: 'rgba(255,140,0,0.04)' },
+  iconBox: { width: 42, height: 42, borderRadius: 12, backgroundColor: 'rgba(255,140,0,0.1)', alignItems: 'center', justifyContent: 'center', marginLeft: 4 },
+  prefix: { color: '#fff', fontWeight: '800', fontSize: 16, marginLeft: 12 },
+  sep: { width: 1, height: 24, backgroundColor: '#1e293b', marginHorizontal: 12 },
+  input: { flex: 1, color: '#fff', fontSize: 16, fontWeight: '500' },
+  
+  actions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4, marginBottom: 28 },
+  linkLeft: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  linkRight: { color: '#FF8C00', fontSize: 13, fontWeight: '700' },
+  
+  btnWrap: { borderRadius: 16, overflow: 'hidden', shadowColor: '#FF8C00', shadowOpacity: 0.35, shadowRadius: 14, elevation: 8 },
+  btn: { height: 58, justifyContent: 'center', alignItems: 'center' },
+  btnContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  btnText: { color: '#fff', fontSize: 15, fontWeight: '900', letterSpacing: 0.8 },
+  
+  secure: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 18 },
+  secureText: { color: '#64748b', fontSize: 11 },
 });

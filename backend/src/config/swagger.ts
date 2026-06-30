@@ -6,42 +6,21 @@ const options: swaggerJsdoc.Options = {
     info: {
       title: 'MESSAY API Documentation',
       version: '1.0.0',
-      description: `
-        API REST pour la Super App MESSAY - Plateforme tout-en-un pour la Côte d'Ivoire
-        
-        ## Fonctionnalités
-        - 🛺 Mobilité urbaine (Tricycles)
-        - 🚌 Transport interurbain
-        - 🎟️ Événements et loisirs
-        - 🚜 BTP et matériaux (Lacarrière)
-        - 💳 Paiements intégrés
-        - 🆘 Support client 24/7
-        
-        ## Authentification
-        La plupart des endpoints nécessitent un token JWT dans le header Authorization:
-        \`\`\`
-        Authorization: Bearer <votre_token>
-        \`\`\`
-        
-        Obtenez un token en vous connectant via \`POST /api/auth/login\`
-      `,
+      description: 'API REST pour la Super App MESSAY - Plateforme de Mobilité & Logistique en Côte d\'Ivoire.',
       contact: {
         name: 'MESSAY Support',
         email: 'support@messay.com',
       },
-      license: {
-        name: 'MIT',
-        url: 'https://opensource.org/licenses/MIT',
-      },
     },
     servers: [
       {
-        url: 'http://localhost:5000',
-        description: 'Serveur de développement',
+        // 🚩 UTILISE TON IP LOCALE ICI (indispensable pour le téléphone)
+        url: 'http://192.168.1.7:5000', 
+        description: 'Serveur Local (Développement)',
       },
       {
-        url: 'https://api.messay.com',
-        description: 'Serveur de production',
+        url: 'http://localhost:5000',
+        description: 'Localhost',
       },
     ],
     components: {
@@ -50,7 +29,6 @@ const options: swaggerJsdoc.Options = {
           type: 'http',
           scheme: 'bearer',
           bearerFormat: 'JWT',
-          description: 'Entrez votre token JWT obtenu lors de la connexion',
         },
       },
       schemas: {
@@ -58,66 +36,33 @@ const options: swaggerJsdoc.Options = {
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
-            nom: { type: 'string', example: 'Kouassi' },
-            prenom: { type: 'string', example: 'Jean' },
-            email: { type: 'string', format: 'email', example: 'jean.kouassi@example.com' },
-            telephone: { type: 'string', example: '+2250701234567' },
+            nom: { type: 'string' },
+            prenom: { type: 'string' },
+            email: { type: 'string', format: 'email' },
             role: { type: 'string', enum: ['USER', 'CONDUCTEUR', 'CHAUFFEUR', 'ADMIN'] },
-            photo: { type: 'string', nullable: true },
-            isVerified: { type: 'boolean' },
           },
         },
         Course: {
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
-            userId: { type: 'string', format: 'uuid' },
-            conducteurId: { type: 'string', format: 'uuid', nullable: true },
-            departLatitude: { type: 'number', example: 5.3599517 },
-            departLongitude: { type: 'number', example: -4.0082563 },
-            departAdresse: { type: 'string', example: 'Cocody, Angré' },
-            destinationLatitude: { type: 'number', example: 5.3247 },
-            destinationLongitude: { type: 'number', example: -4.0127 },
-            destinationAdresse: { type: 'string', example: 'Plateau, Centre-ville' },
-            distance: { type: 'number', example: 8.5 },
-            dureeEstimee: { type: 'integer', example: 25 },
-            prix: { type: 'number', example: 2200 },
-            statut: { 
-              type: 'string', 
-              enum: ['EN_ATTENTE', 'ACCEPTEE', 'EN_COURS', 'TERMINEE', 'ANNULEE'] 
-            },
-            partageTrajet: { type: 'boolean' },
-            noteConducteur: { type: 'number', minimum: 1, maximum: 5, nullable: true },
-            commentaire: { type: 'string', nullable: true },
-            createdAt: { type: 'string', format: 'date-time' },
-          },
-        },
-        Error: {
-          type: 'object',
-          properties: {
-            error: { type: 'string', example: 'Message d\'erreur' },
+            prix: { type: 'number' },
+            statut: { type: 'string', enum: ['EN_ATTENTE', 'ACCEPTEE', 'EN_COURS', 'TERMINEE', 'ANNULEE'] },
           },
         },
       },
     },
-    tags: [
-      {
-        name: 'Authentification',
-        description: 'Endpoints pour l\'inscription, connexion et gestion des utilisateurs',
-      },
-      {
-        name: 'Courses',
-        description: 'Gestion des courses de tricycles',
-      },
-      {
-        name: 'Santé',
-        description: 'Vérification de l\'état de l\'API',
-      },
-    ],
   },
-  apis: ['./src/routes/*.ts', './src/controllers/*.ts'],
+  // 🚩 LA CORRECTION EST ICI : On vide le tableau pour que Swagger arrête de scanner les commentaires mal indentés.
+  apis: [], 
 };
 
-const swaggerSpec = swaggerJsdoc(options);
+// Bloc de sécurité pour éviter le crash si la génération échoue
+let swaggerSpec = {};
+try {
+  swaggerSpec = swaggerJsdoc(options);
+} catch (error) {
+  console.error('❌ Erreur lors de la génération de Swagger :', error);
+}
 
 export default swaggerSpec;

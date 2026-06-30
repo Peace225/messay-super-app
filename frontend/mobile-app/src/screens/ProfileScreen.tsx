@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,12 +13,15 @@ import {
   Easing,
   ActivityIndicator,
   Pressable,
+  RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
-import { FontAwesome5, Ionicons, MaterialIcons } from '@expo/vector-icons';
+import api from '../services/api'; // NOUVEAU : Import indispensable pour supprimer le compte
+import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 const TRICYCLE_ICON = require('../../assets/images/map/tricycle-icon.png');
@@ -26,14 +29,16 @@ const DEFAULT_PROFILE = "https://images.unsplash.com/photo-1530268729831-4b0b9e1
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user, isAuthenticated, logout, setUser } = useAuthStore();
+  
   const [loadingImage, setLoadingImage] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   
   const shineAnim = useRef(new Animated.Value(-width)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Apparition en fondu de l'écran
     Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 800,
@@ -51,40 +56,85 @@ export default function ProfileScreen() {
         setTimeout(startShine, 4000);
       });
     };
+    
     if (isAuthenticated) startShine();
   }, [isAuthenticated]);
 
-  const pickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Privilège Requis', 'L\'accès aux photos est nécessaire pour personnaliser votre profil MESSAY.');
-      return;
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    } catch (error) {
+      console.error("Erreur de rafraîchissement:", error);
+    } finally {
+      setRefreshing(false);
     }
+  }, []);
 
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
+  const pickImage = useCallback(async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Privilège Requis', 'L\'accès aux photos est nécessaire pour personnaliser votre profil MESSAY.');
+        return;
+      }
 
-    if (!result.canceled) {
-      setLoadingImage(true);
-      // Simulation d'upload
-      setTimeout(() => {
-        setUser({ ...user, photo: result.assets[0].uri });
-        setLoadingImage(false);
-        Alert.alert('Élite', 'Votre identité visuelle a été mise à jour. ✨');
-      }, 1200);
+      let result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setLoadingImage(true);
+        setTimeout(() => {
+          setUser({ ...user, photo: result.assets[0].uri });
+          setLoadingImage(false);
+          Alert.alert('Élite', 'Votre identité visuelle a été mise à jour. ✨');
+        }, 1200);
+      }
+    } catch (error) {
+      setLoadingImage(false);
+      Alert.alert('Erreur', 'Impossible de charger l\'image. Veuillez réessayer.');
     }
-  };
+  }, [user, setUser]);
 
-  const handleLogout = () => {
-    Alert.alert('Session', 'Souhaitez-vous fermer votre accès sécurisé ?', [
-      { text: 'Rester', style: 'cancel' },
-      { text: 'Déconnexion', style: 'destructive', onPress: async () => { await logout(); router.replace('/(tabs)/home'); } },
+  // FONCTION 1 : DÉCONNEXION
+  const handleLogout = useCallback(() => {
+    Alert.alert('Session', 'Souhaitez-vous fermer votre session MESSAY ?', [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Se déconnecter', style: 'destructive', onPress: async () => { 
+          await logout(); 
+          router.replace('/(tabs)/home'); 
+        } 
+      },
     ]);
-  };
+  }, [logout, router]);
+
+  // FONCTION 2 : SUPPRIMER LE COMPTE
+  const handleDeleteAccount = useCallback(() => {
+    Alert.alert(
+      'Zone Rouge',
+      'Êtes-vous sûr de vouloir supprimer définitivement votre compte MESSAY ? Cette action est irréversible.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.delete(`/users/${user?.id}`);
+              await logout();
+              router.replace('/(tabs)/home');
+            } catch (error: any) {
+              Alert.alert('Erreur', error.response?.data?.error || 'Impossible de supprimer le compte.');
+            }
+          },
+        },
+      ]
+    );
+  }, [user, logout, router]);
 
   if (!isAuthenticated || !user) return null;
   const userRole = user?.role || 'USER';
@@ -92,38 +142,49 @@ export default function ProfileScreen() {
   return (
     <Animated.View style={[styles.mainWrapper, { opacity: fadeAnim }]}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        
-        {/* HEADER PRO 7D */}
-        <LinearGradient colors={['#0f172a', '#1e293b', '#334155']} style={styles.headerPremium}>
+      
+      <ScrollView 
+        style={styles.container} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh}
+            tintColor="#FF6B35"
+            colors={['#FF6B35']}
+          />
+        }
+      >
+        <LinearGradient 
+          colors={['#0f172a', '#1e293b', '#334155']} 
+          style={[styles.headerPremium, { paddingTop: insets.top + 20 }]}
+        >
           <View style={styles.headerOverlay}>
             
-            <TouchableOpacity 
-                activeOpacity={0.8} 
-                onPress={pickImage} 
-                style={styles.avatarContainer}
-            >
+            <TouchableOpacity activeOpacity={0.8} onPress={pickImage} style={styles.avatarContainer}>
               <LinearGradient colors={['#FF6B35', '#FF8E64']} style={styles.avatarHalo}>
                 <View style={styles.avatarBorder}>
                   {loadingImage ? (
                     <View style={styles.loaderFull}>
-                      <ActivityIndicator color="white" />
+                      <ActivityIndicator color="white" size="large" />
                     </View>
                   ) : (
                     <Image 
-                      source={{ uri: user.photo || DEFAULT_PROFILE }} 
+                      source={{ uri: user?.photo || DEFAULT_PROFILE }} 
                       style={styles.profilePhoto} 
                     />
                   )}
                 </View>
               </LinearGradient>
               <View style={styles.cameraBadgePro}>
-                  <Ionicons name="camera" size={12} color="white" />
+                <Ionicons name="camera" size={12} color="white" />
               </View>
               <View style={styles.activePulse} />
             </TouchableOpacity>
             
-            <Text style={styles.userNamePro}>{user.prenom} {user.nom}</Text>
+            <Text style={styles.userNamePro}>
+              {user?.prenom || 'Utilisateur'} {user?.nom || ''}
+            </Text>
             
             <View style={styles.pillBadgePro}>
               <LinearGradient 
@@ -136,19 +197,21 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.contactRowPro}>
-               <Ionicons name="mail-outline" size={12} color="rgba(255,255,255,0.5)" />
-               <Text style={styles.contactTextPro}>{user.email}</Text>
-               <View style={styles.dotSeparatorPro} />
-               <Ionicons name="call-outline" size={12} color="rgba(255,255,255,0.5)" />
-               <Text style={styles.contactTextPro}>{user.telephone}</Text>
+              <Ionicons name="mail-outline" size={12} color="rgba(255,255,255,0.5)" />
+              <Text style={styles.contactTextPro}>{user?.email || 'Non renseigné'}</Text>
+              <View style={styles.dotSeparatorPro} />
+              <Ionicons name="call-outline" size={12} color="rgba(255,255,255,0.5)" />
+              <Text style={styles.contactTextPro}>{user?.telephone || 'Non renseigné'}</Text>
             </View>
           </View>
         </LinearGradient>
 
         <View style={styles.content}>
-          {/* BANNIÈRE PARTENAIRE ELITE */}
           {userRole === 'USER' && (
-            <Pressable style={({pressed}) => [styles.promoCard, pressed && {transform: [{scale: 0.98}]}]} onPress={() => router.push('/support')}>
+            <Pressable 
+              style={({pressed}) => [styles.promoCard, pressed && {transform: [{scale: 0.98}]}]} 
+              onPress={() => router.push('/support')}
+            >
               <LinearGradient colors={['#FF6B35', '#FF8E64']} start={{x:0, y:0}} end={{x:1, y:0}} style={styles.promoGradient}>
                 <Animated.View style={[styles.shineContainer, { transform: [{ translateX: shineAnim }] }]}>
                   <LinearGradient colors={['transparent', 'rgba(255,255,255,0.4)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.shineGradient} />
@@ -158,13 +221,12 @@ export default function ProfileScreen() {
                   <Text style={styles.promoSubPro}>Activez votre tricycle et encaissez des revenus.</Text>
                 </View>
                 <View style={styles.promoIconBoxPro}>
-                    <Image source={TRICYCLE_ICON} style={styles.promoTricycleIcon} resizeMode="contain" />
+                  <Image source={TRICYCLE_ICON} style={styles.promoTricycleIcon} resizeMode="contain" />
                 </View>
               </LinearGradient>
             </Pressable>
           )}
 
-          {/* SECTIONS ACTIONS */}
           <View style={styles.glassSection}>
             <Text style={styles.sectionTitlePro}>Privilèges Compte</Text>
             <MenuOptionPro icon="user-edit" title="Modifier le profil" sub="Nom, prénom, téléphone" onPress={() => router.push('/edit-profile')} />
@@ -172,10 +234,22 @@ export default function ProfileScreen() {
             <MenuOptionPro icon="headset" title="Conciergerie 24/7" sub="Assistance et support technique" onPress={() => router.push('/support')} />
           </View>
 
+          {/* BOUTON 1 : DÉCONNEXION (GRIS CLAIR) */}
           <TouchableOpacity style={styles.logoutBtnPro} onPress={handleLogout}>
-             <Ionicons name="power" size={20} color="#EF4444" />
-             <Text style={styles.logoutBtnTextPro}>Fermer la session</Text>
+             <Ionicons name="log-out-outline" size={20} color="#475569" />
+             <Text style={styles.logoutBtnTextPro}>Me déconnecter</Text>
           </TouchableOpacity>
+
+          {/* BOUTON 2 : ZONE DE SUPPRESSION (ROUGE) */}
+          <View style={styles.dangerZone}>
+            <View style={styles.dangerHeader}>
+              <Ionicons name="warning" size={20} color="#EF4444" />
+              <Text style={styles.dangerTitle}>Zone de suppression</Text>
+            </View>
+            <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteAccount}>
+              <Text style={styles.deleteButtonText}>Supprimer le compte</Text>
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.footerPro}>
              <Text style={styles.versionTextPro}>MESSAY PLATINUM v1.0.1</Text>
@@ -187,10 +261,10 @@ export default function ProfileScreen() {
   );
 }
 
-const MenuOptionPro = ({ icon, title, sub, onPress }: any) => (
+const MenuOptionPro = ({ icon, title, sub, onPress }: { icon: string, title: string, sub: string, onPress: () => void }) => (
   <TouchableOpacity style={styles.menuRowPro} onPress={onPress} activeOpacity={0.6}>
     <View style={styles.iconCirclePro}>
-        <FontAwesome5 name={icon} size={14} color="#FF6B35" />
+      <FontAwesome5 name={icon as any} size={14} color="#FF6B35" />
     </View>
     <View style={{flex: 1}}>
         <Text style={styles.menuTitlePro}>{title}</Text>
@@ -203,10 +277,9 @@ const MenuOptionPro = ({ icon, title, sub, onPress }: any) => (
 const styles = StyleSheet.create({
   mainWrapper: { flex: 1, backgroundColor: '#F0F2F5' },
   container: { flex: 1 },
-  headerPremium: { paddingTop: 80, paddingBottom: 60, borderBottomLeftRadius: 50, borderBottomRightRadius: 50 },
+  headerPremium: { paddingBottom: 60, borderBottomLeftRadius: 50, borderBottomRightRadius: 50 },
   headerOverlay: { alignItems: 'center' },
   
-  // AVATAR 7D
   avatarContainer: { position: 'relative' },
   avatarHalo: { width: 116, height: 116, borderRadius: 58, justifyContent: 'center', alignItems: 'center', padding: 3 },
   avatarBorder: { width: 106, height: 106, borderRadius: 53, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
@@ -226,7 +299,6 @@ const styles = StyleSheet.create({
 
   content: { padding: 20, marginTop: -40 },
   
-  // CARTE PROMO PRO
   promoCard: { borderRadius: 28, overflow: 'hidden', elevation: 15, shadowColor: '#FF6B35', shadowOpacity: 0.4, shadowRadius: 15, marginBottom: 25 },
   promoGradient: { flexDirection: 'row', alignItems: 'center', padding: 24, position: 'relative' },
   promoInfo: { flex: 1 },
@@ -237,7 +309,6 @@ const styles = StyleSheet.create({
   shineContainer: { position: 'absolute', top: 0, bottom: 0, width: 150 },
   shineGradient: { flex: 1, width: '100%' },
 
-  // SECTIONS GLASS
   glassSection: { backgroundColor: 'white', borderRadius: 32, padding: 10, marginBottom: 20, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10, elevation: 3 },
   sectionTitlePro: { fontSize: 14, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 2, paddingLeft: 20, paddingTop: 20, marginBottom: 10 },
   menuRowPro: { flexDirection: 'row', alignItems: 'center', padding: 18, borderRadius: 24 },
@@ -245,10 +316,17 @@ const styles = StyleSheet.create({
   menuTitlePro: { fontSize: 16, fontWeight: '800', color: '#1e293b' },
   menuSubTitlePro: { fontSize: 12, color: '#94a3b8', marginTop: 2 },
 
-  logoutBtnPro: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 22, marginTop: 5, borderRadius: 24, backgroundColor: 'rgba(239, 68, 68, 0.05)' },
-  logoutBtnTextPro: { color: '#EF4444', fontSize: 16, fontWeight: '900', marginLeft: 12 },
+  logoutBtnPro: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 18, borderRadius: 20, backgroundColor: 'white', marginBottom: 20, shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 8, elevation: 2 },
+  logoutBtnTextPro: { color: '#475569', fontSize: 15, fontWeight: '800', marginLeft: 10 },
+
+  // STYLES DE LA ZONE DE SUPPRESSION
+  dangerZone: { backgroundColor: '#FEF2F2', borderRadius: 24, padding: 20, borderWidth: 1, borderColor: '#FECACA', marginBottom: 20 },
+  dangerHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
+  dangerTitle: { fontSize: 15, fontWeight: '800', color: '#EF4444', marginLeft: 8 },
+  deleteButton: { backgroundColor: 'white', paddingVertical: 14, borderRadius: 14, alignItems: 'center', borderWidth: 1, borderColor: '#FCA5A5' },
+  deleteButtonText: { color: '#EF4444', fontSize: 14, fontWeight: '700' },
   
-  footerPro: { paddingVertical: 40, alignItems: 'center' },
+  footerPro: { paddingVertical: 20, alignItems: 'center' },
   versionTextPro: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 3 },
   copyrightTextPro: { fontSize: 12, fontWeight: '600', color: '#94a3b8', marginTop: 6 }
 });

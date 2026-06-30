@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "258465113789",
+    "project_id": "messay-497da",
+    "storage_bucket": "messay-497da.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:258465113789:android:0647ee88ff2426844e39d4",
+        "android_client_info": {
+          "package_name": "com.messay.tricycle"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBiKkF7KII_-Y6_w03JCXvAdhPiGFhXn-4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

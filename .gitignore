@@ -10,8 +10,14 @@ coverage/
 build/
 dist/
 
+# Native directories (IMPORTANT: à ignorer pour EAS Build)
+android/
+ios/
+
 # Misc
 .DS_Store
+*.apk
+*.aab
 .env.local
 .env.development.local
 .env.test.local
@@ -21,44 +27,18 @@ dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-lerna-debug.log*
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
-
-# OS
-Thumbs.db
 
 # Expo
 .expo/
 .expo-shared/
 
-# Backend specific
+# Project Specific
 backend/.env
-backend/node_modules/
-
-# Mobile app specific
 mobile-app/.env
-mobile-app/node_modules/
-
-# Admin dashboard specific
 admin-dashboard/.env
-admin-dashboard/node_modules/
-admin-dashboard/dist/
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Prisma
-backend/prisma/migrations/**/migration.sql
-
-# Temporary files
-*.tmp
-*.temp
-.cache/

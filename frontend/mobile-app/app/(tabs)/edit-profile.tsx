@@ -13,83 +13,75 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useAuthStore } from '../../src/store/authStore'; // Vérifie bien ce chemin selon ton dossier
+import { useAuthStore } from '../../src/store/authStore';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function EditProfileScreen() {
   const router = useRouter();
-  
-  // On récupère l'utilisateur et la fonction de mise à jour depuis le store
   const { user, updateUser } = useAuthStore();
 
-  // États locaux initialisés avec les données actuelles de l'utilisateur
   const [nom, setNom] = useState(user?.nom || '');
   const [prenom, setPrenom] = useState(user?.prenom || '');
   const [telephone, setTelephone] = useState(user?.telephone || '');
   const [loading, setLoading] = useState(false);
 
-  // Fonction de sauvegarde
   const handleUpdate = async () => {
-    // Validation simple
     if (!nom.trim() || !prenom.trim() || !telephone.trim()) {
-      Alert.alert('Champs requis', 'Veuillez remplir toutes les informations essentielles.');
+      Alert.alert('Champs requis', 'Veuillez remplir toutes les informations.');
       return;
     }
 
     setLoading(true);
     
     try {
-      // On met à jour le store (qui met à jour AsyncStorage automatiquement)
       await updateUser({
         nom: nom.trim(),
         prenom: prenom.trim(),
         telephone: telephone.trim(),
       });
 
-      // Simulation d'un petit délai pour l'effet "Premium"
       setTimeout(() => {
         setLoading(false);
         Alert.alert(
           'Profil mis à jour', 
-          'Vos informations ont été enregistrées avec succès ! ✨',
+          'Vos informations ont été enregistrées !',
           [{ text: 'Parfait', onPress: () => router.back() }]
         );
       }, 800);
 
     } catch (error) {
       setLoading(false);
-      Alert.alert('Erreur', 'Impossible de sauvegarder les modifications. Réessayez plus tard.');
+      Alert.alert('Erreur', 'Impossible de sauvegarder.');
     }
   };
 
   return (
-    <View style={styles.mainWrapper}>
+    <SafeAreaView style={styles.mainWrapper} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="white" />
       
-      {/* HEADER ELITE */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color="#1e293b" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Édition du Profil</Text>
-        <View style={{ width: 40 }} /> {/* Équilibreur pour le centrage */}
+        <View style={styles.headerSpacer} />
       </View>
 
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
+        style={styles.flex1}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
         <ScrollView 
           contentContainerStyle={styles.scrollContent} 
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          
           <View style={styles.formSection}>
             <Text style={styles.sectionLabel}>Identité & Contact</Text>
             
-            {/* CHAMP NOM */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Nom de famille</Text>
               <View style={styles.inputWrapper}>
@@ -100,11 +92,11 @@ export default function EditProfileScreen() {
                   onChangeText={setNom}
                   placeholder="Votre nom"
                   placeholderTextColor="#94a3b8"
+                  autoCapitalize="words"
                 />
               </View>
             </View>
 
-            {/* CHAMP PRÉNOM */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Prénom(s)</Text>
               <View style={styles.inputWrapper}>
@@ -115,11 +107,11 @@ export default function EditProfileScreen() {
                   onChangeText={setPrenom}
                   placeholder="Votre prénom"
                   placeholderTextColor="#94a3b8"
+                  autoCapitalize="words"
                 />
               </View>
             </View>
 
-            {/* CHAMP TÉLÉPHONE */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Mobile</Text>
               <View style={styles.inputWrapper}>
@@ -129,28 +121,31 @@ export default function EditProfileScreen() {
                   value={telephone}
                   onChangeText={setTelephone}
                   keyboardType="phone-pad"
-                  placeholder="+225 00 00 00 00 00"
+                  placeholder="+225 00 00 00"
                   placeholderTextColor="#94a3b8"
                 />
               </View>
             </View>
 
-            {/* CHAMP EMAIL (VERROUILLÉ) */}
-            <View style={[styles.inputGroup, { opacity: 0.7 }]}>
+            <View style={[styles.inputGroup, styles.disabledGroup]}>
               <Text style={styles.inputLabel}>Adresse Email (Sécurisée)</Text>
-              <View style={[styles.inputWrapper, { backgroundColor: '#f1f5f9', borderColor: 'transparent' }]}>
+              <View style={[styles.inputWrapper, styles.readOnlyWrapper]}>
                 <Ionicons name="mail" size={16} color="#94a3b8" style={styles.inputIcon} />
-                <Text style={styles.readOnlyText}>{user?.email}</Text>
-                <Ionicons name="lock-closed" size={12} color="#cbd5e1" style={{marginLeft: 'auto'}} />
+                <Text style={styles.readOnlyText} numberOfLines={1}>
+                  {user?.email || ''}
+                </Text>
+                <View style={styles.lockIcon}>
+                  <Ionicons name="lock-closed" size={12} color="#cbd5e1" />
+                </View>
               </View>
             </View>
           </View>
 
-          {/* BOUTON DE SAUVEGARDE ANIMÉ */}
           <TouchableOpacity 
             style={styles.saveBtn} 
             onPress={handleUpdate}
             disabled={loading}
+            activeOpacity={0.9}
           >
             <LinearGradient 
               colors={['#FF6B35', '#FF8E64']} 
@@ -159,82 +154,155 @@ export default function EditProfileScreen() {
               style={styles.btnGradient}
             >
               {loading ? (
-                <ActivityIndicator color="white" />
+                <ActivityIndicator color="white" size="small" />
               ) : (
-                <>
-                  <Text style={styles.btnText}>Enregistrer l'excellence</Text>
-                  <Ionicons name="checkmark-done" size={20} color="white" style={{marginLeft: 10}} />
-                </>
+                <View style={styles.btnContent}>
+                  <Text style={styles.btnText}>Enregistrer</Text>
+                  <Ionicons name="checkmark-done" size={20} color="white" style={styles.btnIcon} />
+                </View>
               )}
             </LinearGradient>
           </TouchableOpacity>
 
           <Text style={styles.disclaimer}>
-            Vos données sont protégées par le système de sécurité MESSAY.
+            Vos données sont protégées par MESSAY
           </Text>
-
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  mainWrapper: { flex: 1, backgroundColor: '#FFF' },
+  flex1: { flex: 1 },
+  mainWrapper: { 
+    flex: 1, 
+    backgroundColor: '#FFFFFF' 
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 20,
-    backgroundColor: '#FFF',
+    paddingVertical: 16,
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
   },
   backBtn: {
-    width: 45,
-    height: 45,
-    borderRadius: 15,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     backgroundColor: '#F8FAFC',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerTitle: { fontSize: 20, fontWeight: '900', color: '#1e293b', letterSpacing: -0.5 },
-  scrollContent: { padding: 25 },
-  formSection: { marginBottom: 30 },
-  sectionLabel: { fontSize: 11, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 25 },
-  inputGroup: { marginBottom: 22 },
-  inputLabel: { fontSize: 13, fontWeight: '800', color: '#475569', marginBottom: 8, marginLeft: 4 },
+  headerTitle: { 
+    fontSize: 18, 
+    fontWeight: '800', 
+    color: '#1e293b',
+    letterSpacing: -0.3,
+  },
+  headerSpacer: { width: 44 },
+  scrollContent: { 
+    padding: 24,
+    paddingBottom: 40,
+  },
+  formSection: { 
+    marginBottom: 24 
+  },
+  sectionLabel: { 
+    fontSize: 11, 
+    fontWeight: '800', 
+    color: '#94a3b8', 
+    textTransform: 'uppercase', 
+    letterSpacing: 1.5, 
+    marginBottom: 20 
+  },
+  inputGroup: { 
+    marginBottom: 20 
+  },
+  disabledGroup: {
+    opacity: 0.7,
+  },
+  inputLabel: { 
+    fontSize: 13, 
+    fontWeight: '700', 
+    color: '#475569', 
+    marginBottom: 8, 
+    marginLeft: 4 
+  },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderRadius: 20,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    paddingHorizontal: 18,
-    height: 65,
+    paddingHorizontal: 16,
+    height: 58,
   },
-  inputIcon: { width: 30 },
-  input: { flex: 1, fontSize: 16, fontWeight: '700', color: '#1e293b' },
-  readOnlyText: { fontSize: 16, fontWeight: '600', color: '#64748b' },
+  readOnlyWrapper: {
+    backgroundColor: '#F1F5F9',
+    borderColor: 'transparent',
+  },
+  inputIcon: { 
+    marginRight: 12,
+    width: 20,
+  },
+  input: { 
+    flex: 1, 
+    fontSize: 15, 
+    fontWeight: '600', 
+    color: '#1e293b',
+    paddingVertical: 0,
+  },
+  readOnlyText: { 
+    flex: 1,
+    fontSize: 15, 
+    fontWeight: '500', 
+    color: '#64748b' 
+  },
+  lockIcon: {
+    marginLeft: 8,
+  },
   saveBtn: { 
-    borderRadius: 22, 
+    borderRadius: 16, 
     overflow: 'hidden', 
-    elevation: 8, 
-    shadowColor: '#FF6B35', 
-    shadowOpacity: 0.3, 
-    shadowRadius: 15, 
-    marginTop: 10 
+    marginTop: 8,
+    elevation: 4,
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
   },
-  btnGradient: { padding: 22, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
-  btnText: { color: 'white', fontSize: 17, fontWeight: '900', letterSpacing: 0.5 },
+  btnGradient: { 
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 56,
+  },
+  btnContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnText: { 
+    color: 'white', 
+    fontSize: 16, 
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  btnIcon: {
+    marginLeft: 8,
+  },
   disclaimer: { 
     textAlign: 'center', 
-    marginTop: 30, 
-    color: '#cbd5e1', 
-    fontSize: 12, 
-    fontWeight: '500' 
+    marginTop: 24, 
+    color: '#CBD5E1', 
+    fontSize: 11, 
+    fontWeight: '500',
+    lineHeight: 16,
   },
 });

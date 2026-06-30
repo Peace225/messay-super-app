@@ -1,9 +1,9 @@
-import jwt from 'jsonwebtoken';
+import jwt, { Secret } from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'votre_secret_jwt_changez_moi';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'votre_refresh_secret';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
-const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
+const JWT_SECRET = (process.env.JWT_SECRET || 'votre_secret_jwt_changez_moi') as Secret;
+const JWT_REFRESH_SECRET = (process.env.JWT_REFRESH_SECRET || 'votre_refresh_secret') as Secret;
+const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || '24h') as any;
+const JWT_REFRESH_EXPIRES_IN = (process.env.JWT_REFRESH_EXPIRES_IN || '7d') as any;
 
 export interface TokenPayload {
   userId: string;
@@ -15,6 +15,7 @@ export interface TokenPayload {
  * Génère un access token JWT
  */
 export const generateAccessToken = (payload: TokenPayload): string => {
+  // On utilise "as any" pour l'expiration pour éviter les conflits de types avec la bibliothèque 'ms'
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 };
 

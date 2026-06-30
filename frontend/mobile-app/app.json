@@ -28,8 +28,7 @@
       },
       "config": {
         "googleMapsApiKey": "AIzaSyCsHs_23j3tUjHDvBzNLf0DFh-FtRTFP6U"
-      },
-      "googleServicesFile": "./GoogleService-Info.plist"
+      }
     },
     "android": {
       "package": "com.messay.tricycle",

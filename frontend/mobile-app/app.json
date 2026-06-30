@@ -4,40 +4,115 @@
     "slug": "messay-super-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
+    "icon": "./assets/logo.png",
+    "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f172a"
+    },
     "assetBundlePatterns": [
-      "**/*"
+      "assets/**/*"
     ],
+    "scheme": "messay",
+    "owner": "bradfal",
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.messay.app"
+      "supportsTablet": false,
+      "bundleIdentifier": "com.messay.tricycle",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "MESSAY a besoin de ta position pour trouver un tricycle près de toi à Abidjan.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Pour suivre ta course en temps réel même quand l'app est fermée",
+        "NSCameraUsageDescription": "Pour scanner les QR codes de paiement",
+        "UIBackgroundModes": ["location", "fetch", "remote-notification"]
+      },
+      "config": {
+        "googleMapsApiKey": "AIzaSyCsHs_23j3tUjHDvBzNLf0DFh-FtRTFP6U"
+      },
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
-      "package": "com.messay.app",
+      "package": "com.messay.tricycle",
       "versionCode": 1,
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "backgroundColor": "#FF6B35"
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#FF6B35",
+        "monochromeImage": "./assets/logo.png"
       },
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
         "CAMERA",
-        "INTERNET"
+        "POST_NOTIFICATIONS",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED",
+        "WAKE_LOCK"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyCsHs_23j3tUjHDvBzNLf0DFh-FtRTFP6U"
+        }
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "messay"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
       ]
     },
-    "web": {},
     "plugins": [
       "expo-router",
-      "expo-build-properties"
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#FF6B35"
+        }
+      ],
+      "@react-native-firebase/app",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "MESSAY utilise ta position pour trouver les tricycles les plus proches.",
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "minSdkVersion": 24
+          },
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
+        }
+      ]
     ],
-    "scheme": "messay",
     "extra": {
       "router": {
         "origin": false
       },
       "eas": {
-        "projectId": "441e60c6-bc1d-454e-aaa3-c9f2d73c4067"
+        "projectId": "3243e067-efa6-40ed-b4cd-a8dc6782e23c"
       }
+    },
+    "notification": {
+      "icon": "./assets/notification-icon.png",
+      "color": "#FF6B35",
+      "androidMode": "default",
+      "androidCollapsedTitle": "MESSAY"
     }
   }
 }

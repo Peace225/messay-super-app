@@ -14,13 +14,22 @@ import bcrypt from 'bcrypt';
 
 dotenv.config();
 
-const prisma = new PrismaClient();
+// Prisma avec gestion d'erreurs
+const prisma = new PrismaClient({
+  log: process.env.NODE_ENV === 'development'? ['query', 'error'] : ['error'],
+});
+
 const app: Application = express();
 const httpServer = createServer(app);
 
+// CORS configuré pour production
+const corsOrigins = process.env.CORS_ORIGIN
+ ? process.env.CORS_ORIGIN.split(',')
+  : ['http://localhost:3000', 'http://localhost:8081', '*'];
+
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: process.env.CORS_ORIGIN?.split(',') || '*',
+    origin: corsOrigins,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'PUT'],
     credentials: true
   },
@@ -29,25 +38,47 @@ const io = new SocketIOServer(httpServer, {
 
 export const getIO = () => io;
 
-app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',') || '*', credentials: true }));
+// Middlewares
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
+app.use(cors({
+  origin: corsOrigins,
+  credentials: true
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Health check pour Render
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Routes
 app.use('/api/logistique', logistiqueRoutes);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/api', routes);
 
-// ===== ROUTES FINANCE WEB UNIQUEMENT =====
+// ===== ROUTES FINANCE =====
 app.get('/api/finance/stats', async (req, res) => {
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const [revenuTotal, revenuJour, depenses, courses, chauffeurs, flotteActive, flotteTotal, maintenance, ticketsJour] = await Promise.all([
-      prisma.transaction.aggregate({ _sum: { montant: true }, where: { type: 'ENTRÉE', statut: 'VALIDÉ' } }),
-      prisma.transaction.aggregate({ _sum: { montant: true }, where: { type: 'ENTRÉE', createdAt: { gte: today } } }),
-      prisma.transaction.aggregate({ _sum: { montant: true }, where: { type: 'SORTIE' } }),
+      prisma.transaction.aggregate({
+        _sum: { montant: true },
+        where: { type: 'ENTRÉE', statut: 'VALIDÉ' }
+      }),
+      prisma.transaction.aggregate({
+        _sum: { montant: true },
+        where: { type: 'ENTRÉE', createdAt: { gte: today } }
+      }),
+      prisma.transaction.aggregate({
+        _sum: { montant: true },
+        where: { type: 'SORTIE' }
+      }),
       prisma.course.count({ where: { statut: 'TERMINEE' } }),
       prisma.conducteur.count({ where: { isAvailable: true } }),
       prisma.tricycle.count({ where: { status: 'DISPONIBLE' } }),
@@ -86,9 +117,7 @@ app.get('/api/finance/transactions', async (req, res) => {
       include: {
         conducteur: {
           include: {
-            user: {
-              select: { nom: true, prenom: true }
-            }
+            user: { select: { nom: true, prenom: true } }
           }
         }
       }
@@ -139,8 +168,8 @@ app.post('/api/finance/reports/generate', async (req, res) => {
     res.status(500).json({ error: 'Erreur génération' });
   }
 });
-// ===== FIN ROUTES FINANCE =====
 
+// ===== SOCKET.IO =====
 io.on('connection', (socket) => {
   console.log('✅ Client connecté:', socket.id);
 
@@ -161,7 +190,7 @@ io.on('connection', (socket) => {
 
   socket.on('join-admin-panel', () => {
     socket.join('admin-room');
-    console.log('👨‍💼 Admin rejoint');
+    console.log('👨💼 Admin rejoint');
   });
 
   socket.on('client:join-course', ({ userId, courseId }) => {
@@ -286,13 +315,18 @@ io.on('connection', (socket) => {
       });
     } catch (error: any) {
       console.error('Erreur register:', error);
-      socket.emit('error', { message: error.code === 'P2002'? 'Immatriculation déjà utilisée' : 'Erreur inscription' });
+      socket.emit('error', {
+        message: error.code === 'P2002'? 'Immatriculation déjà utilisée' : 'Erreur inscription'
+      });
     }
   });
 
   socket.on('tricycle:delete', async ({ id }) => {
     try {
-      const tri = await prisma.tricycle.findUnique({ where: { id }, include: { conducteur: true } });
+      const tri = await prisma.tricycle.findUnique({
+        where: { id },
+        include: { conducteur: true }
+      });
       if (tri?.conducteurId) {
         await prisma.tricycle.delete({ where: { id } });
         await prisma.conducteur.delete({ where: { id: tri.conducteurId } });
@@ -306,9 +340,17 @@ io.on('connection', (socket) => {
 
   socket.on('tricycle:control', async ({ tricycleId, action }) => {
     try {
-      const status = action === 'activate'? 'DISPONIBLE' : action === 'maintenance'? 'MAINTENANCE' : 'HORS_LIGNE';
-      await prisma.tricycle.update({ where: { id: tricycleId }, data: { status: status as any } });
-      io.to('admin-room').emit('tricycle:status-changed', { tricycleId, status, timestamp: new Date().toISOString() });
+      const status = action === 'activate'? 'DISPONIBLE' :
+                     action === 'maintenance'? 'MAINTENANCE' : 'HORS_LIGNE';
+      await prisma.tricycle.update({
+        where: { id: tricycleId },
+        data: { status: status as any }
+      });
+      io.to('admin-room').emit('tricycle:status-changed', {
+        tricycleId,
+        status,
+        timestamp: new Date().toISOString()
+      });
     } catch (error) {
       console.error('Erreur control:', error);
     }
@@ -317,7 +359,9 @@ io.on('connection', (socket) => {
   socket.on('driver:update-location', async (data) => {
     if (!data.chauffeurId ||!data.lat ||!data.lng) return;
     try {
-      const tricycle = await prisma.tricycle.findFirst({ where: { conducteurId: data.chauffeurId } });
+      const tricycle = await prisma.tricycle.findFirst({
+        where: { conducteurId: data.chauffeurId }
+      });
       if (!tricycle) return;
 
       await prisma.tricycle.update({
@@ -423,16 +467,28 @@ io.on('connection', (socket) => {
 app.use(notFound);
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
-httpServer.listen(PORT, () => {
+const PORT = parseInt(process.env.PORT || '5000', 10);
+
+// Bind sur 0.0.0.0 pour Render/Railway
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 MESSAY API démarré sur le port ${PORT}`);
-  console.log(`📊 Finance API: http://localhost:${PORT}/api/finance/stats`);
+  console.log(`📊 Health: http://localhost:${PORT}/health`);
+  console.log(`📚 Docs: http://localhost:${PORT}/api-docs`);
 });
 
+// Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('Arrêt du serveur...');
   await prisma.$disconnect();
-  httpServer.close(() => process.exit(0));
+  httpServer.close(() => {
+    console.log('Serveur arrêté');
+    process.exit(0);
+  });
 });
 
-export { app, httpServer };
+process.on('SIGINT', async () => {
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+export { app, httpServer, prisma };

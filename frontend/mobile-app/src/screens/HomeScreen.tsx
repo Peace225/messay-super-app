@@ -26,7 +26,7 @@ const SERVICES_DATA = [
     description: 'Transport Urbain',
     badge: '🔥 Populaire',
     badgeColor: '#FF3B30',
-    image: require('../../assets/images/tricycle.jpg'),
+    image: require('../../assets/images/tricycle1.jpg'),
     path: '/(tabs)/tricycle'
   },
   {

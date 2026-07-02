@@ -14,7 +14,10 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:seed": "ts-node prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "keywords": [
     "messay",
@@ -24,7 +27,6 @@
   "author": "MESSAY Team",
   "license": "MIT",
   "dependencies": {
-    "@prisma/adapter-pg": "^7.6.0",
     "@prisma/client": "^6.19.3",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
@@ -38,7 +40,6 @@
     "jsonwebtoken": "^9.0.2",
     "pdfkit": "^0.13.0",
     "pg": "^8.20.0",
-    "prisma": "^6.2.1",
     "qrcode": "^1.5.3",
     "socket.io": "^4.8.3",
     "stripe": "^13.8.0",
@@ -56,8 +57,10 @@
     "@types/qrcode": "^1.5.6",
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
+    "prisma": "^6.19.3",
     "ts-node": "^10.9.1",
     "ts-node-dev": "^2.0.0",
+    "tsx": "^4.7.0",
     "typescript": "^5.3.2"
   }
 }

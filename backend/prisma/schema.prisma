@@ -9,7 +9,7 @@ datasource db {
 }
 
 // ============================================
-// AUTHENTIFICATION & UTILISATEURS
+// ENUMS GLOBAUX
 // ============================================
 
 enum UserRole {
@@ -28,6 +28,142 @@ enum MoyenPaiement {
   WAVE
   ESPECES
 }
+
+enum CourseStatus {
+  EN_ATTENTE
+  ACCEPTEE
+  EN_COURS
+  TERMINEE
+  ANNULEE
+}
+
+enum TricycleStatus {
+  DISPONIBLE
+  EN_COURSE
+  MAINTENANCE
+  HORS_LIGNE
+}
+
+enum CompagnieTransport {
+  UTB
+  AVS
+  SBTA
+  TCI
+  STIF
+  CTE
+  UTS
+  AUTRE
+}
+
+enum TicketStatus {
+  RESERVE
+  PAYE
+  UTILISE
+  ANNULE
+  EXPIRE
+}
+
+enum ClasseTicket {
+  STANDARD
+  VIP
+  PREMIUM
+}
+
+enum CanalVente {
+  GUICHET
+  APP
+  WEB
+  AGENT
+}
+
+enum EventCategorie {
+  CONCERT
+  SPORT
+  THEATRE
+  CONFERENCE
+  FESTIVAL
+  AUTRE
+}
+
+enum TypeMateriau {
+  SABLE
+  GRAVIER
+  CIMENT
+  PIERRE
+  BETON
+}
+
+enum TypeCamion {
+  BENNE
+  CITERNE
+  PLATEAU
+  MALAXEUR
+}
+
+enum CommandeBTPStatus {
+  EN_ATTENTE
+  CONFIRMEE
+  EN_ROUTE
+  LIVREE
+  ANNULEE
+}
+
+enum PaiementStatus {
+  EN_ATTENTE
+  REUSSI
+  ECHOUE
+  REMBOURSE
+}
+
+enum TypePaiement {
+  COURSE
+  TICKET_TRANSPORT
+  BILLET_EVENT
+  COMMANDE_BTP
+  RECHARGE
+}
+
+enum TypeDemande {
+  QUESTION
+  RECLAMATION
+  OBJET_PERDU
+  LITIGE
+  TECHNIQUE
+  AUTRE
+}
+
+enum SupportStatus {
+  OUVERT
+  EN_COURS
+  RESOLU
+  FERME
+}
+
+enum NotificationType {
+  COURSE
+  TICKET
+  EVENT
+  BTP
+  PAIEMENT
+  SUPPORT
+  SYSTEME
+}
+
+// FINANCE - pour server.ts
+enum TypeMouvement {
+  ENTREE
+  SORTIE
+}
+
+enum StatutMouvement {
+  VALIDE
+  EN_ATTENTE
+  ANNULE
+}
+
+// ============================================
+// AUTHENTIFICATION
+// ============================================
 
 model User {
   id String @id @default(uuid())
@@ -64,23 +200,8 @@ model User {
 }
 
 // ============================================
-// MOBILITÉ URBAINE - TRICYCLES
+// MOBILITÉ URBAINE
 // ============================================
-
-enum CourseStatus {
-  EN_ATTENTE
-  ACCEPTEE
-  EN_COURS
-  TERMINEE
-  ANNULEE
-}
-
-enum TricycleStatus {
-  DISPONIBLE
-  EN_COURSE
-  MAINTENANCE
-  HORS_LIGNE
-}
 
 model Conducteur {
   id String @id @default(uuid())
@@ -103,10 +224,10 @@ model Conducteur {
 
   courses Course[]
   tricycle Tricycle?
+  transactions Transaction[] // ← RELATION AJOUTÉE
 
   @@index([statut])
   @@index([disponible])
-  @@index([positionLatitude, positionLongitude])
 }
 
 model Tricycle {
@@ -128,7 +249,6 @@ model Tricycle {
   updatedAt DateTime @updatedAt
 
   @@index([status])
-  @@index([conducteurId])
 }
 
 model Course {
@@ -160,111 +280,51 @@ model Course {
   @@index([userId])
   @@index([conducteurId])
   @@index([statut])
-  @@index([createdAt])
 }
 
 // ============================================
 // TRANSPORT INTERURBAIN
 // ============================================
 
-enum CompagnieTransport {
-  UTB
-  AVS
-  SBTA
-  TCI
-  STIF
-  CTE
-  UTS
-  AUTRE
-}
-
-enum TicketStatus {
-  RESERVE
-  PAYE
-  UTILISE
-  ANNULE
-  EXPIRE
-}
-
-enum ClasseTicket {
-  STANDARD
-  VIP
-  PREMIUM
-}
-
-enum CanalVente {
-  GUICHET
-  APP
-  WEB
-  AGENT
-}
-
 model Ticket {
   id String @id @default(uuid())
   userId String?
   user User? @relation(fields: [userId], references: [id])
-
-  // Compagnie
   compagnie CompagnieTransport
-
-  // Passager
   passagerNom String
   passagerPrenom String?
   telephone String
   email String?
-
-  // Trajet
   depart String
   destination String
   gareDepart String?
   gareArrivee String?
-
-  // Voyage
   dateDepart DateTime
   heureDepart String
   numeroBus String?
   siege String
   classe ClasseTicket @default(STANDARD)
-
-  // Paiement
   prix Float
   methodePaiement MoyenPaiement?
   referencePaiement String?
-
-  // QR & Statut
   qrCode String @unique
   statut TicketStatus @default(PAYE)
   codeValidation String? @unique
   dateValidation DateTime?
-
-  // Metadata
   canalVente CanalVente @default(GUICHET)
   vendeurId String?
   paiementId String?
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([userId])
   @@index([qrCode])
   @@index([telephone])
   @@index([dateDepart])
-  @@index([compagnie])
-  @@index([statut])
 }
 
 // ============================================
-// LOISIRS & ÉVÉNEMENTIEL
+// ÉVÉNEMENTIEL
 // ============================================
-
-enum EventCategorie {
-  CONCERT
-  SPORT
-  THEATRE
-  CONFERENCE
-  FESTIVAL
-  AUTRE
-}
 
 model Event {
   id String @id @default(uuid())
@@ -289,7 +349,6 @@ model Event {
   billets BilletEvent[]
 
   @@index([date])
-  @@index([categorie])
 }
 
 model BilletEvent {
@@ -306,35 +365,11 @@ model BilletEvent {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
-  @@index([eventId])
 }
 
 // ============================================
-// MODULE BTP - LACARRIÈRE
+// BTP
 // ============================================
-
-enum TypeMateriau {
-  SABLE
-  GRAVIER
-  CIMENT
-  PIERRE
-  BETON
-}
-
-enum TypeCamion {
-  BENNE
-  CITERNE
-  PLATEAU
-  MALAXEUR
-}
-
-enum CommandeBTPStatus {
-  EN_ATTENTE
-  CONFIRMEE
-  EN_ROUTE
-  LIVREE
-  ANNULEE
-}
 
 model CommandeBTP {
   id String @id @default(uuid())
@@ -366,9 +401,7 @@ model CommandeBTP {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
-  @@index([chauffeurId])
   @@index([statut])
-  @@index([priorite])
 }
 
 model Chauffeur {
@@ -392,7 +425,6 @@ model Chauffeur {
   commandes CommandeBTP[]
 
   @@index([statut])
-  @@index([disponible])
 }
 
 model Camion {
@@ -411,28 +443,11 @@ model Camion {
   updatedAt DateTime @updatedAt
 
   commandes CommandeBTP[]
-
-  @@index([statut])
 }
 
 // ============================================
 // PAIEMENTS
 // ============================================
-
-enum PaiementStatus {
-  EN_ATTENTE
-  REUSSI
-  ECHOUE
-  REMBOURSE
-}
-
-enum TypeTransaction {
-  COURSE
-  TICKET_TRANSPORT
-  BILLET_EVENT
-  COMMANDE_BTP
-  RECHARGE
-}
 
 model Paiement {
   id String @id @default(uuid())
@@ -440,7 +455,7 @@ model Paiement {
   user User @relation(fields: [userId], references: [id])
   montant Float
   moyen MoyenPaiement
-  typeTransaction TypeTransaction
+  typeTransaction TypePaiement
   referenceId String
   statut PaiementStatus @default(EN_ATTENTE)
   transactionId String? @unique
@@ -451,28 +466,41 @@ model Paiement {
 
   @@index([userId])
   @@index([statut])
-  @@index([typeTransaction])
 }
 
 // ============================================
-// SUPPORT CLIENT
+// FINANCE - POUR TON SERVER.TS
 // ============================================
 
-enum TypeDemande {
-  QUESTION
-  RECLAMATION
-  OBJET_PERDU
-  LITIGE
-  TECHNIQUE
-  AUTRE
+model Transaction {
+  id String @id @default(uuid())
+  montant Float
+  type TypeMouvement
+  statut StatutMouvement @default(VALIDE)
+  motif String?
+  conducteurId String?
+  conducteur Conducteur? @relation(fields: [conducteurId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@index([statut])
+  @@index([createdAt])
 }
 
-enum SupportStatus {
-  OUVERT
-  EN_COURS
-  RESOLU
-  FERME
+model Rapport {
+  id String @id @default(uuid())
+  type String
+  titre String
+  contenu String
+  periode String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
+
+// ============================================
+// SUPPORT & NOTIFICATIONS
+// ============================================
 
 model SupportTicket {
   id String @id @default(uuid())
@@ -491,7 +519,6 @@ model SupportTicket {
   messages SupportMessage[]
 
   @@index([userId])
-  @@index([statut])
 }
 
 model SupportMessage {
@@ -504,20 +531,6 @@ model SupportMessage {
   createdAt DateTime @default(now())
 
   @@index([ticketId])
-}
-
-// ============================================
-// NOTIFICATIONS
-// ============================================
-
-enum NotificationType {
-  COURSE
-  TICKET
-  EVENT
-  BTP
-  PAIEMENT
-  SUPPORT
-  SYSTEME
 }
 
 model Notification {
@@ -536,7 +549,7 @@ model Notification {
 }
 
 // ============================================
-// CONFIGURATION & TARIFS
+// CONFIGURATION
 // ============================================
 
 model TarifCourse {

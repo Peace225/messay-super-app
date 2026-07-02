@@ -8,7 +8,7 @@ import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import messaging from '@react-native-firebase/messaging';
+// import messaging from '@react-native-firebase/messaging'; // ❌ COMMENTÉ POUR EXPO GO
 
 const { width, height } = Dimensions.get('window');
 
@@ -94,57 +94,32 @@ export default function HomeScreen() {
   const [showPopup, setShowPopup] = useState(false);
   const modalScale = useRef(new Animated.Value(0)).current;
 
-  // 🔥 FIREBASE MESSAGING - AJOUTÉ
-  useEffect(() => {
-    const setupFCM = async () => {
-      try {
-        // Demande permission
-        const authStatus = await messaging().requestPermission();
-        const enabled =
-          authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-          authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+  // ❌ FIREBASE DÉSACTIVÉ POUR EXPO GO
+  // useEffect(() => {
+  // const setupFCM = async () => {... };
+  // if (isAuthenticated) { setupFCM(); }
+  // }, [isAuthenticated]);
 
-        if (enabled) {
-          // Récupère le token
-          const token = await messaging().getToken();
-          console.log('🔑 TOKEN FCM MESSAY:', token);
-
-          // Affiche pendant 5 sec puis disparaît
-          setTimeout(() => {
-            Alert.alert(
-              '✅ FCM Prêt',
-              `Token copié dans les logs\n\n${token.substring(0, 40)}...`,
-              [{ text: 'OK' }]
-            );
-          }, 2000);
-        }
-      } catch (error) {
-        console.log('FCM Error:', error);
-      }
-    };
-
-    if (isAuthenticated) {
-      setupFCM();
-    }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    if (!isLoading && isAuthenticated && user) {
-      if (user.role === 'CONDUCTEUR') router.replace('/conducteur-dashboard');
-      else if (user.role === 'CHAUFFEUR') router.replace('/chauffeur-dashboard');
-    }
-  }, [user, isAuthenticated, isLoading]);
+  // ❌ REDIRECTION SUPPRIMÉE (gérée dans _layout.tsx)
+  // useEffect(() => {
+  // if (!isLoading && isAuthenticated && user) {
+  // if (user.role === 'CONDUCTEUR') router.replace('/conducteur-dashboard');
+  // else if (user.role === 'CHAUFFEUR') router.replace('/chauffeur-dashboard');
+  // }
+  // }, [user, isAuthenticated, isLoading]);
 
   const heroBanners = useMemo(() => [
     {
       id: '1',
-      greeting: `Salut, ${user?.prenom || user?.nom || 'Membre'} 👋`,
+      greeting: isAuthenticated
+       ? `Salut, ${user?.prenom || user?.nom || 'Membre'} 👋`
+        : 'Bienvenue sur MESSAY 👋',
       title: 'Votre trajet premium\ncommence ici',
       cta: 'Réserver maintenant',
       path: '/(tabs)/tricycle',
       image: require('../../assets/images/hero.png')
     },
-  ], [user]);
+  ], [user, isAuthenticated]);
 
   useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
@@ -164,6 +139,14 @@ export default function HomeScreen() {
   useEffect(() => {
     if (showPopup) Animated.spring(modalScale, { toValue: 1, friction: 6, useNativeDriver: true }).start();
   }, [showPopup]);
+
+  const handleServicePress = (path: string) => {
+    if (!isAuthenticated) {
+      router.push('/(auth)/login');
+      return;
+    }
+    router.push(path as any);
+  };
 
   if (isLoading) {
     return (
@@ -202,8 +185,13 @@ export default function HomeScreen() {
               <Text style={styles.logo}>MESSAY</Text>
               <Text style={styles.tag}>L'EXCELLENCE EN MOUVEMENT</Text>
             </View>
-            <TouchableOpacity style={styles.avatar} onPress={() => router.push('/profile')}>
-              <Text style={styles.avatarTxt}>{user?.nom?.charAt(0) || 'M'}</Text>
+            <TouchableOpacity
+              style={styles.avatar}
+              onPress={() => router.push(isAuthenticated? '/profile' : '/(auth)/login')}
+            >
+              <Text style={styles.avatarTxt}>
+                {isAuthenticated? (user?.nom?.charAt(0) || 'M') : '?'}
+              </Text>
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -212,7 +200,10 @@ export default function HomeScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
 
         <View style={styles.searchWrap}>
-          <TouchableOpacity style={styles.search} onPress={() => router.push('/(tabs)/tricycle')}>
+          <TouchableOpacity
+            style={styles.search}
+            onPress={() => handleServicePress('/(tabs)/tricycle')}
+          >
             <Ionicons name="search" size={20} color="#FF6B35" />
             <Text style={styles.searchTxt}>Où allons-nous?</Text>
             <View style={styles.searchPill}><Text style={styles.searchPillTxt}>Maintenant</Text></View>
@@ -226,7 +217,7 @@ export default function HomeScreen() {
                 <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.heroGrad}>
                   <Text style={styles.heroHi}>{b.greeting}</Text>
                   <Text style={styles.heroTitle}>{b.title}</Text>
-                  <TouchableOpacity onPress={() => router.push(b.path as any)} style={styles.heroBtn}>
+                  <TouchableOpacity onPress={() => handleServicePress(b.path)} style={styles.heroBtn}>
                     <Text style={styles.heroBtnTxt}>{b.cta}</Text>
                     <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
                   </TouchableOpacity>
@@ -239,7 +230,12 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <View style={styles.grid}>
             {SERVICES_DATA.map(s => (
-              <ServiceCard key={s.id} item={s} fadeAnim={fadeAnim} onPress={() => router.push(s.path as any)} />
+              <ServiceCard
+                key={s.id}
+                item={s}
+                fadeAnim={fadeAnim}
+                onPress={() => handleServicePress(s.path)}
+              />
             ))}
           </View>
         </View>
@@ -256,7 +252,7 @@ export default function HomeScreen() {
               </View>
               <Text style={styles.modalTitle}>Tricycle Pro disponible</Text>
               <Text style={styles.modalSub}>Un chauffeur à 2 min de vous</Text>
-              <TouchableOpacity style={styles.modalBtn} onPress={() => { setShowPopup(false); router.push('/(tabs)/tricycle'); }}>
+              <TouchableOpacity style={styles.modalBtn} onPress={() => { setShowPopup(false); handleServicePress('/(tabs)/tricycle'); }}>
                 <Text style={styles.modalBtnTxt}>Commander</Text>
               </TouchableOpacity>
             </View>

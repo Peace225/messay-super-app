@@ -8,10 +8,6 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ============================================
-// ENUMS GLOBAUX
-// ============================================
-
 enum UserRole {
   USER
   CONDUCTEUR
@@ -149,7 +145,6 @@ enum NotificationType {
   SYSTEME
 }
 
-// FINANCE - pour server.ts
 enum TypeMouvement {
   ENTREE
   SORTIE
@@ -160,10 +155,6 @@ enum StatutMouvement {
   EN_ATTENTE
   ANNULE
 }
-
-// ============================================
-// AUTHENTIFICATION
-// ============================================
 
 model User {
   id String @id @default(uuid())
@@ -193,15 +184,7 @@ model User {
   notifications Notification[]
   conducteurProfile Conducteur?
   chauffeurProfile Chauffeur?
-
-  @@index([email])
-  @@index([telephone])
-  @@index([role])
 }
-
-// ============================================
-// MOBILITÉ URBAINE
-// ============================================
 
 model Conducteur {
   id String @id @default(uuid())
@@ -213,9 +196,11 @@ model Conducteur {
   immatriculation String @unique
   statut String @default("DISPONIBLE")
   disponible Boolean @default(true)
+  isAvailable Boolean @default(true)
   positionLatitude Float?
   positionLongitude Float?
   note Float @default(5.0)
+  rating Float @default(5.0)
   nombreCourses Int @default(0)
   selfieVerification String?
   isVerified Boolean @default(false)
@@ -224,10 +209,7 @@ model Conducteur {
 
   courses Course[]
   tricycle Tricycle?
-  transactions Transaction[] // ← RELATION AJOUTÉE
-
-  @@index([statut])
-  @@index([disponible])
+  transactions Transaction[]
 }
 
 model Tricycle {
@@ -247,8 +229,6 @@ model Tricycle {
   derniereActivite DateTime @default(now())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@index([status])
 }
 
 model Course {
@@ -260,12 +240,18 @@ model Course {
   departLatitude Float
   departLongitude Float
   departAdresse String
+  pickupAddress String?
   destinationLatitude Float
   destinationLongitude Float
   destinationAdresse String
+  destAddress String?
   distance Float
   dureeEstimee Int
+  duree Int?
   prix Float
+  estimatedPrice Float?
+  prixFinal Float?
+  type String @default("STANDARD")
   statut CourseStatus @default(EN_ATTENTE)
   partageTrajet Boolean @default(false)
   noteConducteur Float?
@@ -276,15 +262,15 @@ model Course {
   heureFin DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@index([userId])
-  @@index([conducteurId])
-  @@index([statut])
 }
 
-// ============================================
-// TRANSPORT INTERURBAIN
-// ============================================
+model Trajet {
+  id String @id @default(uuid())
+  courseId String?
+  distance Float
+  duree Int
+  createdAt DateTime @default(now())
+}
 
 model Ticket {
   id String @id @default(uuid())
@@ -316,15 +302,7 @@ model Ticket {
   paiementId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@index([qrCode])
-  @@index([telephone])
-  @@index([dateDepart])
 }
-
-// ============================================
-// ÉVÉNEMENTIEL
-// ============================================
 
 model Event {
   id String @id @default(uuid())
@@ -347,8 +325,6 @@ model Event {
   updatedAt DateTime @updatedAt
 
   billets BilletEvent[]
-
-  @@index([date])
 }
 
 model BilletEvent {
@@ -363,13 +339,7 @@ model BilletEvent {
   statut String @default("VALIDE")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@index([userId])
 }
-
-// ============================================
-// BTP
-// ============================================
 
 model CommandeBTP {
   id String @id @default(uuid())
@@ -399,9 +369,6 @@ model CommandeBTP {
   commentaire String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@index([userId])
-  @@index([statut])
 }
 
 model Chauffeur {
@@ -423,8 +390,6 @@ model Chauffeur {
   updatedAt DateTime @updatedAt
 
   commandes CommandeBTP[]
-
-  @@index([statut])
 }
 
 model Camion {
@@ -445,10 +410,6 @@ model Camion {
   commandes CommandeBTP[]
 }
 
-// ============================================
-// PAIEMENTS
-// ============================================
-
 model Paiement {
   id String @id @default(uuid())
   userId String
@@ -463,14 +424,7 @@ model Paiement {
   recu String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@index([userId])
-  @@index([statut])
 }
-
-// ============================================
-// FINANCE - POUR TON SERVER.TS
-// ============================================
 
 model Transaction {
   id String @id @default(uuid())
@@ -482,10 +436,6 @@ model Transaction {
   conducteur Conducteur? @relation(fields: [conducteurId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@index([type])
-  @@index([statut])
-  @@index([createdAt])
 }
 
 model Rapport {
@@ -497,10 +447,6 @@ model Rapport {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
-
-// ============================================
-// SUPPORT & NOTIFICATIONS
-// ============================================
 
 model SupportTicket {
   id String @id @default(uuid())
@@ -517,8 +463,6 @@ model SupportTicket {
   updatedAt DateTime @updatedAt
 
   messages SupportMessage[]
-
-  @@index([userId])
 }
 
 model SupportMessage {
@@ -529,8 +473,6 @@ model SupportMessage {
   senderRole String
   message String
   createdAt DateTime @default(now())
-
-  @@index([ticketId])
 }
 
 model Notification {
@@ -543,14 +485,7 @@ model Notification {
   data String?
   isRead Boolean @default(false)
   createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([isRead])
 }
-
-// ============================================
-// CONFIGURATION
-// ============================================
 
 model TarifCourse {
   id String @id @default(uuid())

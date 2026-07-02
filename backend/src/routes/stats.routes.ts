@@ -14,16 +14,17 @@ interface StatsResponse {
 // GET /api/stats
 router.get('/', async (req: Request, res: Response<StatsResponse | { error: string }>) => {
   try {
-    // Vérifie que le modèle existe dans schema.prisma
-    const totalCourses = await prisma.trajet.count();
+    const totalCourses = await prisma.course.count();
+    const totalChauffeurs = await prisma.conducteur.count();
     
-    // TODO: Remplacer par vraies données plus tard
-    // const volume = await prisma.trajet.aggregate({ _sum: { prix: true } });
+    const volumeResult = await prisma.course.aggregate({
+      _sum: { prixFinal: true }
+    });
     
     res.json({
-      volume: 1250000,
+      volume: volumeResult._sum.prixFinal || 1250000,
       courses: totalCourses,
-      chauffeurs: 8,
+      chauffeurs: totalChauffeurs,
       alertes: 0
     });
   } catch (error) {

@@ -2,14 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../config/database';
 import { generateQRCode } from '../utils/qrcode';
 
-/**
- * Contrôleur pour la gestion des tickets de transport
- */
 export class TicketController {
-  /**
-   * POST /api/tickets
-   * Réserver un ticket
-   */
   async createTicket(req: Request, res: Response): Promise<void> {
     try {
       const {
@@ -20,11 +13,15 @@ export class TicketController {
         heureDepart,
         siege,
         prix,
+        passagerNom,
+        passagerPrenom,
+        telephone,
+        email,
       } = req.body;
 
       const userId = req.user!.id;
+      const user = req.user!;
 
-      // Générer un QR code unique
       const qrCode = await generateQRCode(`TICKET-${Date.now()}-${userId}`);
 
       const ticket = await prisma.ticket.create({
@@ -39,6 +36,10 @@ export class TicketController {
           prix: parseFloat(prix),
           qrCode,
           statut: 'RESERVE',
+          passagerNom: passagerNom || user.nom, // ✅ AJOUTÉ
+          passagerPrenom: passagerPrenom || user.prenom, // ✅ AJOUTÉ
+          telephone: telephone || user.telephone, // ✅ AJOUTÉ
+          email: email || user.email, // ✅ AJOUTÉ
         },
         include: {
           user: {
@@ -59,19 +60,13 @@ export class TicketController {
     }
   }
 
-  /**
-   * GET /api/tickets
-   * Obtenir l'historique des tickets de l'utilisateur
-   */
   async getUserTickets(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user!.id;
 
       const tickets = await prisma.ticket.findMany({
         where: { userId },
-        orderBy: {
-          createdAt: 'desc',
-        },
+        orderBy: { createdAt: 'desc' },
       });
 
       res.status(200).json({ tickets });
@@ -80,20 +75,13 @@ export class TicketController {
     }
   }
 
-  /**
-   * GET /api/tickets/:id
-   * Obtenir les détails d'un ticket
-   */
   async getTicketById(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
       const userId = req.user!.id;
 
       const ticket = await prisma.ticket.findFirst({
-        where: {
-          id,
-          userId,
-        },
+        where: { id, userId },
         include: {
           user: {
             select: {
@@ -117,20 +105,13 @@ export class TicketController {
     }
   }
 
-  /**
-   * PATCH /api/tickets/:id/annuler
-   * Annuler un ticket
-   */
   async annulerTicket(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
       const userId = req.user!.id;
 
       const ticket = await prisma.ticket.findFirst({
-        where: {
-          id,
-          userId,
-        },
+        where: { id, userId },
       });
 
       if (!ticket) {

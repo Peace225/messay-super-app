@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
-import api from '../services/api'; // NOUVEAU : Import indispensable pour supprimer le compte
+import api from '../services/api';
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -31,12 +31,19 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, isAuthenticated, logout, setUser } = useAuthStore();
-  
+
   const [loadingImage, setLoadingImage] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  
+
   const shineAnim = useRef(new Animated.Value(-width)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  // REDIRECTION SI NON CONNECTÉ
+  useEffect(() => {
+    if (!isAuthenticated ||!user) {
+      router.replace('/(auth)/login');
+    }
+  }, [isAuthenticated, user]);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -56,7 +63,7 @@ export default function ProfileScreen() {
         setTimeout(startShine, 4000);
       });
     };
-    
+
     if (isAuthenticated) startShine();
   }, [isAuthenticated]);
 
@@ -74,7 +81,7 @@ export default function ProfileScreen() {
   const pickImage = useCallback(async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
+      if (status!== 'granted') {
         Alert.alert('Privilège Requis', 'L\'accès aux photos est nécessaire pour personnaliser votre profil MESSAY.');
         return;
       }
@@ -89,7 +96,7 @@ export default function ProfileScreen() {
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setLoadingImage(true);
         setTimeout(() => {
-          setUser({ ...user, photo: result.assets[0].uri });
+          setUser({...user, photo: result.assets[0].uri });
           setLoadingImage(false);
           Alert.alert('Élite', 'Votre identité visuelle a été mise à jour. ✨');
         }, 1200);
@@ -100,23 +107,29 @@ export default function ProfileScreen() {
     }
   }, [user, setUser]);
 
-  // FONCTION 1 : DÉCONNEXION
+  // DÉCONNEXION CORRIGÉE
   const handleLogout = useCallback(() => {
-    Alert.alert('Session', 'Souhaitez-vous fermer votre session MESSAY ?', [
+    Alert.alert('Session', 'Souhaitez-vous fermer votre session MESSAY?', [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Se déconnecter', style: 'destructive', onPress: async () => { 
-          await logout(); 
-          router.replace('/(tabs)/home'); 
-        } 
+      {
+        text: 'Se déconnecter',
+        style: 'destructive',
+        onPress: async () => {
+          await logout();
+          router.dismissAll();
+          setTimeout(() => {
+            router.replace('/(auth)/login');
+          }, 100);
+        }
       },
     ]);
   }, [logout, router]);
 
-  // FONCTION 2 : SUPPRIMER LE COMPTE
+  // SUPPRIMER COMPTE CORRIGÉ
   const handleDeleteAccount = useCallback(() => {
     Alert.alert(
       'Zone Rouge',
-      'Êtes-vous sûr de vouloir supprimer définitivement votre compte MESSAY ? Cette action est irréversible.',
+      'Êtes-vous sûr de vouloir supprimer définitivement votre compte MESSAY? Cette action est irréversible.',
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -126,7 +139,10 @@ export default function ProfileScreen() {
             try {
               await api.delete(`/users/${user?.id}`);
               await logout();
-              router.replace('/(tabs)/home');
+              router.dismissAll();
+              setTimeout(() => {
+                router.replace('/(auth)/login');
+              }, 100);
             } catch (error: any) {
               Alert.alert('Erreur', error.response?.data?.error || 'Impossible de supprimer le compte.');
             }
@@ -136,42 +152,50 @@ export default function ProfileScreen() {
     );
   }, [user, logout, router]);
 
-  if (!isAuthenticated || !user) return null;
+  // AFFICHAGE LOADING AU LIEU DE NULL
+  if (!isAuthenticated ||!user) {
+    return (
+      <View style={{flex:1, justifyContent:'center', alignItems:'center', backgroundColor:'#F0F2F5'}}>
+        <ActivityIndicator size="large" color="#FF6B35" />
+      </View>
+    );
+  }
+
   const userRole = user?.role || 'USER';
 
   return (
     <Animated.View style={[styles.mainWrapper, { opacity: fadeAnim }]}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      
-      <ScrollView 
-        style={styles.container} 
+
+      <ScrollView
+        style={styles.container}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
+          <RefreshControl
+            refreshing={refreshing}
             onRefresh={onRefresh}
             tintColor="#FF6B35"
             colors={['#FF6B35']}
           />
         }
       >
-        <LinearGradient 
-          colors={['#0f172a', '#1e293b', '#334155']} 
+        <LinearGradient
+          colors={['#0f172a', '#1e293b', '#334155']}
           style={[styles.headerPremium, { paddingTop: insets.top + 20 }]}
         >
           <View style={styles.headerOverlay}>
-            
+
             <TouchableOpacity activeOpacity={0.8} onPress={pickImage} style={styles.avatarContainer}>
               <LinearGradient colors={['#FF6B35', '#FF8E64']} style={styles.avatarHalo}>
                 <View style={styles.avatarBorder}>
-                  {loadingImage ? (
+                  {loadingImage? (
                     <View style={styles.loaderFull}>
                       <ActivityIndicator color="white" size="large" />
                     </View>
                   ) : (
-                    <Image 
-                      source={{ uri: user?.photo || DEFAULT_PROFILE }} 
-                      style={styles.profilePhoto} 
+                    <Image
+                      source={{ uri: user?.photo || DEFAULT_PROFILE }}
+                      style={styles.profilePhoto}
                     />
                   )}
                 </View>
@@ -181,14 +205,14 @@ export default function ProfileScreen() {
               </View>
               <View style={styles.activePulse} />
             </TouchableOpacity>
-            
+
             <Text style={styles.userNamePro}>
               {user?.prenom || 'Utilisateur'} {user?.nom || ''}
             </Text>
-            
+
             <View style={styles.pillBadgePro}>
-              <LinearGradient 
-                colors={['rgba(255,107,53,0.2)', 'rgba(255,142,100,0.1)']} 
+              <LinearGradient
+                colors={['rgba(255,107,53,0.2)', 'rgba(255,142,100,0.1)']}
                 style={styles.pillGradient}
               >
                 <Ionicons name="shield-checkmark" size={14} color="#FF8E64" style={{marginRight: 6}} />
@@ -208,8 +232,8 @@ export default function ProfileScreen() {
 
         <View style={styles.content}>
           {userRole === 'USER' && (
-            <Pressable 
-              style={({pressed}) => [styles.promoCard, pressed && {transform: [{scale: 0.98}]}]} 
+            <Pressable
+              style={({pressed}) => [styles.promoCard, pressed && {transform: [{scale: 0.98}]}]}
               onPress={() => router.push('/support')}
             >
               <LinearGradient colors={['#FF6B35', '#FF8E64']} start={{x:0, y:0}} end={{x:1, y:0}} style={styles.promoGradient}>
@@ -234,13 +258,11 @@ export default function ProfileScreen() {
             <MenuOptionPro icon="headset" title="Conciergerie 24/7" sub="Assistance et support technique" onPress={() => router.push('/support')} />
           </View>
 
-          {/* BOUTON 1 : DÉCONNEXION (GRIS CLAIR) */}
           <TouchableOpacity style={styles.logoutBtnPro} onPress={handleLogout}>
              <Ionicons name="log-out-outline" size={20} color="#475569" />
              <Text style={styles.logoutBtnTextPro}>Me déconnecter</Text>
           </TouchableOpacity>
 
-          {/* BOUTON 2 : ZONE DE SUPPRESSION (ROUGE) */}
           <View style={styles.dangerZone}>
             <View style={styles.dangerHeader}>
               <Ionicons name="warning" size={20} color="#EF4444" />
@@ -279,7 +301,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   headerPremium: { paddingBottom: 60, borderBottomLeftRadius: 50, borderBottomRightRadius: 50 },
   headerOverlay: { alignItems: 'center' },
-  
+
   avatarContainer: { position: 'relative' },
   avatarHalo: { width: 116, height: 116, borderRadius: 58, justifyContent: 'center', alignItems: 'center', padding: 3 },
   avatarBorder: { width: 106, height: 106, borderRadius: 53, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
@@ -287,18 +309,18 @@ const styles = StyleSheet.create({
   loaderFull: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   cameraBadgePro: { position: 'absolute', bottom: 5, right: 5, backgroundColor: '#FF6B35', width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#0f172a' },
   activePulse: { position: 'absolute', top: 5, left: 5, width: 12, height: 12, borderRadius: 6, backgroundColor: '#22C55E', borderWidth: 2, borderColor: '#0f172a' },
-  
+
   userNamePro: { fontSize: 28, fontWeight: '900', color: 'white', marginTop: 15, letterSpacing: -0.5 },
   pillBadgePro: { marginTop: 12, borderRadius: 25, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,107,53,0.3)' },
   pillGradient: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 6 },
   pillBadgeTextPro: { color: '#FF8E64', fontSize: 13, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1.2 },
-  
+
   contactRowPro: { flexDirection: 'row', alignItems: 'center', marginTop: 18, opacity: 0.8 },
   contactTextPro: { color: 'white', fontSize: 13, marginLeft: 5 },
   dotSeparatorPro: { width: 4, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.2)', marginHorizontal: 12 },
 
   content: { padding: 20, marginTop: -40 },
-  
+
   promoCard: { borderRadius: 28, overflow: 'hidden', elevation: 15, shadowColor: '#FF6B35', shadowOpacity: 0.4, shadowRadius: 15, marginBottom: 25 },
   promoGradient: { flexDirection: 'row', alignItems: 'center', padding: 24, position: 'relative' },
   promoInfo: { flex: 1 },
@@ -319,13 +341,12 @@ const styles = StyleSheet.create({
   logoutBtnPro: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 18, borderRadius: 20, backgroundColor: 'white', marginBottom: 20, shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 8, elevation: 2 },
   logoutBtnTextPro: { color: '#475569', fontSize: 15, fontWeight: '800', marginLeft: 10 },
 
-  // STYLES DE LA ZONE DE SUPPRESSION
   dangerZone: { backgroundColor: '#FEF2F2', borderRadius: 24, padding: 20, borderWidth: 1, borderColor: '#FECACA', marginBottom: 20 },
   dangerHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
   dangerTitle: { fontSize: 15, fontWeight: '800', color: '#EF4444', marginLeft: 8 },
   deleteButton: { backgroundColor: 'white', paddingVertical: 14, borderRadius: 14, alignItems: 'center', borderWidth: 1, borderColor: '#FCA5A5' },
   deleteButtonText: { color: '#EF4444', fontSize: 14, fontWeight: '700' },
-  
+
   footerPro: { paddingVertical: 20, alignItems: 'center' },
   versionTextPro: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 3 },
   copyrightTextPro: { fontSize: 12, fontWeight: '600', color: '#94a3b8', marginTop: 6 }

@@ -24,7 +24,11 @@
         "NSLocationWhenInUseUsageDescription": "MESSAY a besoin de ta position pour trouver un tricycle près de toi à Abidjan.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Pour suivre ta course en temps réel même quand l'app est fermée",
         "NSCameraUsageDescription": "Pour scanner les QR codes de paiement",
-        "UIBackgroundModes": ["location", "fetch", "remote-notification"]
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "remote-notification"
+        ]
       },
       "config": {
         "googleMapsApiKey": "AIzaSyCsHs_23j3tUjHDvBzNLf0DFh-FtRTFP6U"
@@ -64,7 +68,10 @@
               "scheme": "messay"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -96,7 +103,8 @@
             "deploymentTarget": "15.1"
           }
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "extra": {
       "router": {

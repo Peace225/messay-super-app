@@ -1,197 +1,246 @@
-import React, { useState } from 'react';
-import { 
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, 
-  TextInput, StatusBar, Dimensions, Alert 
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  View, Text, StyleSheet, TouchableOpacity, ScrollView,
+  TextInput, StatusBar, Dimensions, ImageBackground, Image, ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { supabase } from '../services/supabase';
 
 const { width } = Dimensions.get('window');
 
-// --- 5 COMPAGNIES x 5 TRAJETS = 25 VOYAGES ---
-const BUS_TRIPS = [
-  // 1. MESSAY EXPRESS (Orange)
-  { id: 'm1', company: 'Messay Express', route: 'Abidjan - Yamoussoukro', departTime: '08:00', arriveTime: '11:15', price: '5000', type: 'VIP (Climatisé)', seatsLeft: 12, rating: 4.9, logoColor: '#FF6B35' },
-  { id: 'm2', company: 'Messay Express', route: 'Abidjan - Bouaké', departTime: '10:30', arriveTime: '15:45', price: '7000', type: 'Standard', seatsLeft: 25, rating: 4.8, logoColor: '#FF6B35' },
-  { id: 'm3', company: 'Messay Express', route: 'Yamoussoukro - Korhogo', departTime: '13:00', arriveTime: '19:30', price: '9000', type: 'VIP', seatsLeft: 8, rating: 4.9, logoColor: '#FF6B35' },
-  { id: 'm4', company: 'Messay Express', route: 'Abidjan - San Pedro', departTime: '21:00', arriveTime: '03:30', price: '8500', type: 'Premium Nuit', seatsLeft: 3, rating: 4.7, logoColor: '#FF6B35' },
-  { id: 'm5', company: 'Messay Express', route: 'Bouaké - Daloa', departTime: '09:00', arriveTime: '13:00', price: '4500', type: 'Standard', seatsLeft: 40, rating: 4.6, logoColor: '#FF6B35' },
+// Mapping images locales (Supabase ne peut pas stocker les require)
+const COMPANY_ASSETS: any = {
+  'UTB CI': {
+    image: require('../../assets/images/bus_utb.jpg'),
+    logo: require('../../assets/logos/utb.png'),
+    short: 'UTB CI', routes: 42, cities: 9, rating: 4.9, status: 'Premium', priceFrom: '5000'
+  },
+  'Transports AVS': {
+    image: require('../../assets/images/bus_avs.jpg'),
+    logo: require('../../assets/logos/avs.png'),
+    short: 'AVS', routes: 38, cities: 18, rating: 4.8, status: 'VIP', priceFrom: '5000'
+  },
+  'CTE Transport Express': {
+    image: require('../../assets/images/bus_cte.jpg'),
+    logo: require('../../assets/logos/cte.png'),
+    short: 'CTE', routes: 35, cities: 12, rating: 4.7, status: 'Confort', priceFrom: '3000'
+  },
+  'MTK Transport': {
+    image: require('../../assets/images/bus_mtk.jpg'),
+    logo: require('../../assets/logos/mtk.png'),
+    short: 'MTK', routes: 28, cities: 14, rating: 4.6, status: 'Express', priceFrom: '2000'
+  },
+  'MD Transport': {
+    image: require('../../assets/images/bus_mdt.jpg'),
+    logo: require('../../assets/logos/mdt.png'),
+    short: 'MDT', routes: 31, cities: 16, rating: 4.5, status: 'Rapide', priceFrom: '3500'
+  },
+  'SBTA': {
+    image: require('../../assets/images/bus_sbta.jpg'),
+    logo: require('../../assets/logos/sbta.png'),
+    short: 'SBTA', routes: 25, cities: 10, rating: 4.4, status: 'Fiable', priceFrom: '4000'
+  },
+  'STAF Transport': {
+    image: require('../../assets/images/bus_staf.jpg'),
+    logo: require('../../assets/logos/staf.png'),
+    short: 'STAF', routes: 22, cities: 9, rating: 4.3, status: 'Eco', priceFrom: '2500'
+  },
+  'STL Transport': {
+    image: require('../../assets/images/bus_stl.jpg'),
+    logo: require('../../assets/logos/stl.png'),
+    short: 'STL', routes: 19, cities: 8, rating: 4.7, status: 'VIP', priceFrom: '6000'
+  },
+  'TRANS': {
+    image: require('../../assets/images/bus_trans.jpg'),
+    logo: require('../../assets/images/bus_trans.jpg'),
+    short: 'TRA', routes: 24, cities: 11, rating: 4.4, status: 'Ponctuel', priceFrom: '4500'
+  },
+  'SITTI Transport Terreste International': {
+    image: require('../../assets/images/bus_sitti.jpg'),
+    logo: require('../../assets/images/bus_sitti.jpg'),
+    short: 'SITTI', routes: 18, cities: 7, rating: 4.6, status: 'Luxe', priceFrom: '5500'
+  },
+};
 
-  // 2. UTB TRANSPORTS (Bleu)
-  { id: 'u1', company: 'UTB Transports', route: 'Abidjan - Bouaké', departTime: '07:00', arriveTime: '12:30', price: '7000', type: 'Standard', seatsLeft: 15, rating: 4.5, logoColor: '#3B82F6' },
-  { id: 'u2', company: 'UTB Transports', route: 'Yamoussoukro - Abidjan', departTime: '14:00', arriveTime: '17:30', price: '5000', type: 'Climatisé', seatsLeft: 5, rating: 4.4, logoColor: '#3B82F6' },
-  { id: 'u3', company: 'UTB Transports', route: 'Abidjan - Korhogo', departTime: '06:00', arriveTime: '16:00', price: '12000', type: 'Longue Distance', seatsLeft: 22, rating: 4.3, logoColor: '#3B82F6' },
-  { id: 'u4', company: 'UTB Transports', route: 'Bouaké - Man', departTime: '08:30', arriveTime: '15:00', price: '8000', type: 'Standard', seatsLeft: 30, rating: 4.2, logoColor: '#3B82F6' },
-  { id: 'u5', company: 'UTB Transports', route: 'Abidjan - Daloa', departTime: '11:00', arriveTime: '17:00', price: '7500', type: 'Climatisé', seatsLeft: 10, rating: 4.5, logoColor: '#3B82F6' },
-
-  // 3. ARALIA TRANSPORT (Vert)
-  { id: 'a1', company: 'Aralia Transport', route: 'Abidjan - San Pedro', departTime: '22:00', arriveTime: '04:30', price: '8500', type: 'Premium Nuit', seatsLeft: 20, rating: 4.7, logoColor: '#10B981' },
-  { id: 'a2', company: 'Aralia Transport', route: 'San Pedro - Soubré', departTime: '08:00', arriveTime: '10:30', price: '3000', type: 'Express', seatsLeft: 12, rating: 4.6, logoColor: '#10B981' },
-  { id: 'a3', company: 'Aralia Transport', route: 'Abidjan - Gagnoa', departTime: '09:30', arriveTime: '14:00', price: '6000', type: 'Standard', seatsLeft: 4, rating: 4.5, logoColor: '#10B981' },
-  { id: 'a4', company: 'Aralia Transport', route: 'Gagnoa - San Pedro', departTime: '15:00', arriveTime: '18:30', price: '4500', type: 'Climatisé', seatsLeft: 28, rating: 4.4, logoColor: '#10B981' },
-  { id: 'a5', company: 'Aralia Transport', route: 'Abidjan - Sassandra', departTime: '13:00', arriveTime: '17:45', price: '7000', type: 'VIP', seatsLeft: 9, rating: 4.8, logoColor: '#10B981' },
-
-  // 4. GARE NORD EXPRESS (Violet)
-  { id: 'g1', company: 'Gare Nord Express', route: 'Abidjan - Korhogo', departTime: '05:30', arriveTime: '15:30', price: '12000', type: 'VIP+', seatsLeft: 2, rating: 4.6, logoColor: '#8B5CF6' },
-  { id: 'g2', company: 'Gare Nord Express', route: 'Korhogo - Ferké', departTime: '16:30', arriveTime: '17:45', price: '2000', type: 'Navette', seatsLeft: 18, rating: 4.3, logoColor: '#8B5CF6' },
-  { id: 'g3', company: 'Gare Nord Express', route: 'Abidjan - Ouangolo', departTime: '05:00', arriveTime: '16:30', price: '14000', type: 'Standard', seatsLeft: 35, rating: 4.2, logoColor: '#8B5CF6' },
-  { id: 'g4', company: 'Gare Nord Express', route: 'Bouaké - Korhogo', departTime: '10:00', arriveTime: '14:30', price: '5500', type: 'Climatisé', seatsLeft: 14, rating: 4.5, logoColor: '#8B5CF6' },
-  { id: 'g5', company: 'Gare Nord Express', route: 'Abidjan - Boundiali', departTime: '06:00', arriveTime: '17:00', price: '13500', type: 'VIP', seatsLeft: 6, rating: 4.7, logoColor: '#8B5CF6' },
-
-  // 5. IVOIRE RAPIDE (Rouge)
-  { id: 'i1', company: 'Ivoire Rapide', route: 'Abidjan - Daloa', departTime: '07:30', arriveTime: '13:30', price: '7500', type: 'Express', seatsLeft: 21, rating: 4.4, logoColor: '#EF4444' },
-  { id: 'i2', company: 'Ivoire Rapide', route: 'Daloa - Man', departTime: '14:30', arriveTime: '17:30', price: '4000', type: 'Standard', seatsLeft: 8, rating: 4.3, logoColor: '#EF4444' },
-  { id: 'i3', company: 'Ivoire Rapide', route: 'Abidjan - Duékoué', departTime: '08:00', arriveTime: '15:00', price: '8500', type: 'Climatisé', seatsLeft: 11, rating: 4.5, logoColor: '#EF4444' },
-  { id: 'i4', company: 'Ivoire Rapide', route: 'Yamoussoukro - Daloa', departTime: '11:30', arriveTime: '14:30', price: '3500', type: 'Navette', seatsLeft: 2, rating: 4.1, logoColor: '#EF4444' },
-  { id: 'i5', company: 'Ivoire Rapide', route: 'Abidjan - Touba', departTime: '06:30', arriveTime: '18:00', price: '11000', type: 'Longue Distance', seatsLeft: 19, rating: 4.2, logoColor: '#EF4444' },
-];
+const FALLBACK_IMAGE = require('../../assets/images/bus.jpg');
 
 export default function TicketsScreen() {
   const router = useRouter();
-  const [depart, setDepart] = useState('Abidjan');
-  const [arrivee, setArrivee] = useState('');
-  const [date, setDate] = useState("Aujourd'hui");
+  const [search, setSearch] = useState('');
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const logoScrollRef = useRef<ScrollView>(null);
+  const [currentLogoIndex, setCurrentLogoIndex] = useState(0);
 
-  // 🌟 FONCTION D'ACHAT DU BILLET
-  const handleBooking = (trip: any) => {
-    Alert.alert(
-      "Confirmation d'achat",
-      `Voulez-vous réserver un billet pour le trajet ${trip.route} avec ${trip.company} au prix de ${trip.price} FCFA ?\n\nDépart à ${trip.departTime}.`,
-      [
-        {
-          text: "Annuler",
-          style: "cancel"
-        },
-        {
-          text: "Payer",
-          onPress: () => {
-            // Ici tu mettras plus tard l'appel API vers ton système de paiement (Wave, Orange Money...)
-            Alert.alert(
-              "Succès 🎉", 
-              `Votre billet pour ${trip.route} a été généré avec succès ! Vous le retrouverez dans l'onglet Profil.`
-            );
-          }
-        }
-      ]
-    );
+  // Fetch depuis Supabase
+  useEffect(() => {
+    fetchCompanies();
+  }, []);
+
+  const fetchCompanies = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('companies')
+        .select('*')
+        .order('name');
+
+      if (error) throw error;
+
+      // Merge Supabase + assets locaux
+      const merged = (data || []).map((c: any) => ({
+        ...c,
+        ...(COMPANY_ASSETS[c.name] || {
+          short: c.name.substring(0, 4).toUpperCase(),
+          routes: 10, cities: 5, rating: 4.5, status: 'Standard', priceFrom: '5000',
+          image: FALLBACK_IMAGE,
+          logo: FALLBACK_IMAGE,
+        })
+      }));
+
+      setCompanies(merged);
+    } catch (e) {
+      console.log('Erreur Supabase, utilisation fallback', e);
+      // Fallback si Supabase vide
+      setCompanies(Object.entries(COMPANY_ASSETS).map(([name, assets]: any) => ({
+        id: name, name, color: '#FF6B35', gare_name: '', ...assets
+      })));
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const partners = companies.slice(0, 8);
+
+  useEffect(() => {
+    if (partners.length === 0) return;
+    const interval = setInterval(() => {
+      const nextIndex = (currentLogoIndex + 1) % partners.length;
+      logoScrollRef.current?.scrollTo({ x: nextIndex * 88, animated: true });
+      setCurrentLogoIndex(nextIndex);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [currentLogoIndex, partners.length]);
+
+  const filteredCompanies = companies.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const openCompany = (company: any) => {
+    router.push({
+      pathname: `/company/${company.id}`,
+      params: { name: company.name, color: company.color, id: company.id }
+    });
+  };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#FF6B35" />
+        <Text style={{ marginTop: 10, color: '#86868B' }}>Chargement des compagnies...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-      
-      <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="chevron-back" size={24} color="#1D1D1F" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Billets de Bus</Text>
-          <View style={{ width: 40 }} />
-        </View>
-      </SafeAreaView>
+      <StatusBar barStyle="light-content" />
+      <LinearGradient colors={['#FF6B35', '#ED8936']} style={styles.headerGradient}>
+        <SafeAreaView edges={['top']}>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+              <Ionicons name="chevron-back" size={24} color="#FFF" />
+            </TouchableOpacity>
+            <View>
+              <Text style={styles.headerTitle}>Compagnies</Text>
+              <Text style={styles.headerSub}>{companies.length} partenaires officiels</Text>
+            </View>
+            <TouchableOpacity style={styles.filterBtn} onPress={fetchCompanies}>
+              <Ionicons name="refresh" size={22} color="#FFF" />
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={styles.partnersSection}>
+          <View style={styles.partnersHeader}>
+            <Text style={styles.partnersTitle}>Partenaires premium</Text>
+            <View style={styles.dots}>
+              {partners.map((_, i) => (
+                <View key={i} style={[styles.dot, i === currentLogoIndex && styles.dotActive]} />
+              ))}
+            </View>
+          </View>
+          <ScrollView
+            ref={logoScrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.logosScroll}
+            pagingEnabled
+            decelerationRate="fast"
+            snapToInterval={88}
+          >
+            {partners.map((comp) => (
+              <TouchableOpacity key={comp.id} onPress={() => openCompany(comp)} style={styles.logoCard}>
+                <View style={styles.logoWrapper}>
+                  <Image source={comp.logo} style={styles.logoImage} resizeMode="contain" defaultSource={FALLBACK_IMAGE} />
+                </View>
+                <Text style={styles.logoName} numberOfLines={1}>{comp.short}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
         <View style={styles.searchCard}>
-          <View style={styles.inputGroup}>
-            <Ionicons name="location-outline" size={20} color="#86868B" />
-            <TextInput 
-              style={styles.input} 
-              value={depart} 
-              onChangeText={setDepart} 
-              placeholder="Ville de départ" 
-              placeholderTextColor="#86868B"
-            />
-          </View>
-          
-          <View style={styles.divider} />
-          
-          <View style={styles.inputGroup}>
-            <Ionicons name="flag-outline" size={20} color="#FF6B35" />
-            <TextInput 
-              style={styles.input} 
-              value={arrivee} 
-              onChangeText={setArrivee} 
-              placeholder="Où allez-vous ?" 
-              placeholderTextColor="#86868B"
-            />
-          </View>
-
-          <View style={styles.divider} />
-
-          <TouchableOpacity style={styles.inputGroup}>
-            <Ionicons name="calendar-outline" size={20} color="#86868B" />
-            <Text style={styles.dateText}>{date}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.searchBtn}>
-            <Text style={styles.searchBtnTxt}>Rechercher un trajet</Text>
-          </TouchableOpacity>
+          <Ionicons name="search" size={18} color="#86868B" />
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            style={styles.searchInput}
+            placeholder="Rechercher une compagnie..."
+            placeholderTextColor="#86868B"
+          />
         </View>
 
-        <View style={styles.resultsSection}>
-          <Text style={styles.sectionTitle}>Départs disponibles ({BUS_TRIPS.length})</Text>
-          
-          {BUS_TRIPS.map((trip) => (
-            <TouchableOpacity key={trip.id} activeOpacity={0.8} style={styles.tripCard}>
-              
-              <View style={styles.tripHeader}>
-                <View style={styles.companyRow}>
-                  <View style={[styles.companyLogo, { backgroundColor: trip.logoColor + '15' }]}>
-                    <FontAwesome5 name="bus-alt" size={16} color={trip.logoColor} />
+        <View style={styles.grid}>
+          {filteredCompanies.map((company) => (
+            <TouchableOpacity key={company.id} onPress={() => openCompany(company)} activeOpacity={0.9} style={styles.card}>
+              <ImageBackground source={company.image} style={styles.cardImage} imageStyle={{ borderTopLeftRadius: 20, borderTopRightRadius: 20 }}>
+                <LinearGradient colors={['transparent', 'rgba(0,0,0,0.7)']} style={styles.cardOverlay}>
+                  <View style={[styles.badge, { backgroundColor: company.color }]}>
+                    <Text style={styles.badgeTxt}>{company.short}</Text>
                   </View>
-                  <View>
-                    <Text style={styles.companyName}>{trip.company}</Text>
-                    <View style={styles.ratingRow}>
-                      <Ionicons name="star" size={12} color="#F59E0B" />
-                      <Text style={styles.ratingTxt}>{trip.rating}</Text>
-                      <Text style={styles.typeTxt}> • {trip.type}</Text>
-                    </View>
+                  <View style={styles.priceTag}>
+                    <Text style={styles.price}>Dès {company.priceFrom}</Text>
+                    <Text style={styles.currency}>FCFA</Text>
+                  </View>
+                </LinearGradient>
+              </ImageBackground>
+              <View style={styles.cardContent}>
+                <Text style={styles.companyName} numberOfLines={1}>{company.name}</Text>
+                <View style={styles.meta}>
+                  <View style={styles.metaItem}>
+                    <Ionicons name="map-outline" size={14} color="#86868B" />
+                    <Text style={styles.metaTxt}>{company.cities} villes</Text>
+                  </View>
+                  <View style={styles.metaItem}>
+                    <Ionicons name="star" size={12} color="#F59E0B" />
+                    <Text style={styles.metaTxt}>{company.rating}</Text>
                   </View>
                 </View>
-                <Text style={styles.price}>
-                  {trip.price} <Text style={styles.currency}>FCFA</Text>
-                </Text>
-              </View>
-
-              <View style={styles.dashedLine} />
-
-              <View style={styles.routeRow}>
-                <View style={styles.timeColumn}>
-                  <Text style={styles.time}>{trip.departTime}</Text>
-                  <Text style={styles.city}>{trip.route.split(' - ')[0]}</Text>
-                </View>
-                
-                <View style={styles.routeVisual}>
-                  <View style={styles.routeDot} />
-                  <View style={styles.routeLine} />
-                  <View style={[styles.routeDot, { backgroundColor: '#FF6B35', borderColor: '#FF6B35' }]} />
-                </View>
-
-                <View style={styles.timeColumnRight}>
-                  <Text style={styles.time}>{trip.arriveTime}</Text>
-                  <Text style={styles.city}>{trip.route.split(' - ')[1]}</Text>
+                <View style={styles.footer}>
+                  <View style={[styles.routesPill, { backgroundColor: company.color + '15' }]}>
+                    <MaterialCommunityIcons name="bus-multiple" size={14} color={company.color} />
+                    <Text style={[styles.routesTxt, { color: company.color }]}>{company.routes}</Text>
+                  </View>
+                  <Text style={[styles.statusTxt, { color: company.color }]}>{company.status}</Text>
                 </View>
               </View>
-
-              <View style={styles.tripFooter}>
-                <Text style={[styles.seatsTxt, trip.seatsLeft <= 5 && { color: '#EF4444' }]}>
-                  {trip.seatsLeft} {trip.seatsLeft > 1 ? 'places restantes' : 'place restante'}
-                </Text>
-                
-                {/* 🌟 APPEL DE LA FONCTION D'ACHAT AU CLIC SUR LE BOUTON */}
-                <TouchableOpacity 
-                  style={styles.bookBtn}
-                  onPress={() => handleBooking(trip)}
-                >
-                  <Text style={styles.bookBtnTxt}>Acheter</Text>
-                </TouchableOpacity>
-              </View>
-
             </TouchableOpacity>
           ))}
-
         </View>
       </ScrollView>
     </View>
@@ -199,42 +248,42 @@ export default function TicketsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F7' },
-  headerSafeArea: { backgroundColor: '#FFFFFF' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 15, paddingTop: 10 },
-  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F5F5F7', justifyContent: 'center', alignItems: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: '#1D1D1F' },
-  scrollContent: { paddingBottom: 120 },
-  searchCard: { margin: 20, padding: 20, backgroundColor: '#FFFFFF', borderRadius: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.05, shadowRadius: 15, elevation: 4 },
-  inputGroup: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
-  input: { flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: '#1D1D1F' },
-  dateText: { marginLeft: 12, fontSize: 16, fontWeight: '600', color: '#1D1D1F' },
-  divider: { height: 1, backgroundColor: '#F5F5F7', marginLeft: 32 },
-  searchBtn: { backgroundColor: '#FF6B35', paddingVertical: 16, borderRadius: 16, alignItems: 'center', marginTop: 15 },
-  searchBtnTxt: { color: '#FFFFFF', fontWeight: '800', fontSize: 16 },
-  resultsSection: { paddingHorizontal: 20 },
-  sectionTitle: { fontSize: 20, fontWeight: '800', color: '#1D1D1F', marginBottom: 15 },
-  tripCard: { backgroundColor: '#FFFFFF', borderRadius: 24, padding: 20, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.04, shadowRadius: 12, elevation: 3 },
-  tripHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  companyRow: { flexDirection: 'row', alignItems: 'center' },
-  companyLogo: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  companyName: { fontSize: 16, fontWeight: '800', color: '#1D1D1F' },
-  ratingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-  ratingTxt: { fontSize: 12, fontWeight: '700', color: '#86868B', marginLeft: 4 },
-  typeTxt: { fontSize: 12, fontWeight: '500', color: '#86868B' },
-  price: { fontSize: 18, fontWeight: '900', color: '#FF6B35' },
-  currency: { fontSize: 12, fontWeight: '700' },
-  dashedLine: { height: 1, borderBottomWidth: 1, borderColor: '#E5E5EA', borderStyle: 'dashed', marginVertical: 16 },
-  routeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  timeColumn: { flex: 1, alignItems: 'flex-start' },
-  timeColumnRight: { flex: 1, alignItems: 'flex-end' },
-  time: { fontSize: 18, fontWeight: '900', color: '#1D1D1F' },
-  city: { fontSize: 13, fontWeight: '600', color: '#86868B', marginTop: 2 },
-  routeVisual: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
-  routeDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: '#D1D5DB', backgroundColor: '#FFFFFF' },
-  routeLine: { flex: 1, height: 2, backgroundColor: '#E5E5EA', marginHorizontal: 4 },
-  tripFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20 },
-  seatsTxt: { fontSize: 13, fontWeight: '600', color: '#10B981' },
-  bookBtn: { backgroundColor: '#1D1D1F', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12 },
-  bookBtnTxt: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
+  container: { flex: 1, backgroundColor: '#F8F9FA' },
+  headerGradient: { paddingBottom: 20 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 10 },
+  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },
+  headerTitle: { fontSize: 22, fontWeight: '900', color: '#FFF', textAlign: 'center' },
+  headerSub: { fontSize: 12, color: 'rgba(255,255,255,0.8)', textAlign: 'center', marginTop: 2 },
+  filterBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },
+  partnersSection: { backgroundColor: '#FFF', paddingTop: 20, paddingBottom: 16, marginTop: -10, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  partnersHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 14 },
+  partnersTitle: { fontSize: 17, fontWeight: '800', color: '#1D1D1F' },
+  dots: { flexDirection: 'row', gap: 4 },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#E5E7EB' },
+  dotActive: { width: 18, backgroundColor: '#FF6B35' },
+  logosScroll: { paddingHorizontal: 20, gap: 16 },
+  logoCard: { alignItems: 'center', width: 72 },
+  logoWrapper: { width: 64, height: 64, borderRadius: 18, backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center', marginBottom: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.12, shadowRadius: 6, elevation: 3, borderWidth: 1, borderColor: '#F0F0F0', padding: 8 },
+  logoImage: { width: '100%', height: '100%' },
+  logoName: { fontSize: 11, fontWeight: '600', color: '#4B5563', textAlign: 'center' },
+  searchCard: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginTop: 16, marginBottom: 20, backgroundColor: '#FFF', borderRadius: 16, paddingHorizontal: 16, height: 50, gap: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+  searchInput: { flex: 1, fontSize: 15, fontWeight: '600', color: '#1D1D1F' },
+  grid: { paddingHorizontal: 20, paddingBottom: 100, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  card: { width: (width - 52) / 2, backgroundColor: '#FFF', borderRadius: 20, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 4, overflow: 'hidden' },
+  cardImage: { height: 110 },
+  cardOverlay: { flex: 1, justifyContent: 'space-between', padding: 12, flexDirection: 'row', alignItems: 'flex-start' },
+  badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  badgeTxt: { color: '#FFF', fontSize: 10, fontWeight: '800' },
+  priceTag: { backgroundColor: 'rgba(0,0,0,0.75)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, alignItems: 'flex-end' },
+  price: { color: '#FFF', fontSize: 13, fontWeight: '900' },
+  currency: { color: 'rgba(255,255,255,0.8)', fontSize: 9, fontWeight: '700' },
+  cardContent: { padding: 12 },
+  companyName: { fontSize: 15, fontWeight: '800', color: '#1D1D1F', marginBottom: 8 },
+  meta: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  metaTxt: { fontSize: 11, color: '#86868B', fontWeight: '600' },
+  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  routesPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  routesTxt: { fontSize: 10, fontWeight: '700' },
+  statusTxt: { fontSize: 11, fontWeight: '800' },
 });

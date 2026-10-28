@@ -1,92 +1,245 @@
-import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
-import { useAuthStore } from '../store/authStore';
-import { Platform } from 'react-native';
 
-// 🌐 Priorité : ENV > Prod Render > Local Dev
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 
-  (__DEV__ ? 'http://192.168.1.20:5000/api' : 'https://messay-api.onrender.com/api');
+import axios, {
+  type AxiosInstance,
+  type InternalAxiosRequestConfig,
+} from "axios";
 
-console.log('[API] Base URL:', API_URL);
+import { useAuthStore } from "../store/authStore";
+
+// ============================================================
+// 1. CONFIGURATION DE L'API MESSAY
+// ============================================================
+
+// Render est utilisé en développement et en production.
+// La variable Expo permet de changer l'URL si nécessaire.
+
+const API_URL = (
+  process.env.EXPO_PUBLIC_API_URL?.trim() ||
+  "https://messay-api.onrender.com/api"
+).replace(/\/+$/, "");
+
+const API_TIMEOUT = 90000;
+
+if (__DEV__) {
+  console.log("[MESSAY API] URL :", API_URL);
+}
+
+// ============================================================
+// 2. CLIENT AXIOS
+// ============================================================
 
 const api: AxiosInstance = axios.create({
   baseURL: API_URL,
-  timeout: 15000, // Augmenté pour Render (cold start)
+  timeout: API_TIMEOUT,
   headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
+    "Content-Type": "application/json",
+    Accept: "application/json",
   },
 });
 
-// 🔒 INTERCEPTEUR : Ajout du Token
-api.interceptors.request.use(
-  async (config: InternalAxiosRequestConfig) => {
-    const state = useAuthStore.getState();
-    
-    // Attend si le store charge
-    if (state.isLoading) {
-      await new Promise(resolve => setTimeout(resolve, 300));
+// ============================================================
+// 3. TYPES INTERNES
+// ============================================================
+
+type RetryableRequestConfig = InternalAxiosRequestConfig & {
+  _retry?: boolean;
+};
+
+type RefreshTokenResponse = {
+  accessToken: string;
+  refreshToken?: string;
+};
+
+// Empêche le renouvellement sur les routes de connexion.
+function isAuthEndpoint(url?: string): boolean {
+  return /(?:^|\/)auth\/(?:login|register|refresh)(?:\/|$|\?)/i.test(
+    url ?? ""
+  );
+}
+
+// Une seule demande de refresh à la fois.
+let refreshPromise: Promise<string> | null = null;
+
+// ============================================================
+// 4. RENOUVELLEMENT DU TOKEN
+// ============================================================
+
+async function renewAccessToken(): Promise<string> {
+  const {
+    refreshToken,
+    setTokens,
+    logout,
+  } = useAuthStore.getState();
+
+  if (!refreshToken) {
+    await logout();
+    throw new Error("Session expirée : aucun refresh token");
+  }
+
+  try {
+    // Client Axios séparé pour éviter la boucle
+    // des intercepteurs de l'API principale.
+    const response = await axios.post<RefreshTokenResponse>(
+      `${API_URL}/auth/refresh`,
+      { refreshToken },
+      {
+        timeout: API_TIMEOUT,
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+      }
+    );
+
+    const newAccessToken = response.data?.accessToken;
+
+    const newRefreshToken =
+      response.data?.refreshToken || refreshToken;
+
+    if (
+      typeof newAccessToken !== "string" ||
+      !newAccessToken.trim()
+    ) {
+      throw new Error(
+        "Réponse de renouvellement JWT invalide"
+      );
     }
 
-    const token = useAuthStore.getState().accessToken;
-    const isAuthRoute = config.url?.includes('/auth/login') || 
-                       config.url?.includes('/auth/register');
-
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    } else if (!isAuthRoute && __DEV__) {
-      console.warn(`[API] Pas de token pour: ${config.url}`);
-    }
-    
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
-
-// 🔄 INTERCEPTEUR : Refresh automatique
-api.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
+    // Sauvegarde les nouveaux tokens.
+    await setTokens(newAccessToken, newRefreshToken);
 
     if (__DEV__) {
-      const status = error.response?.status || 'NETWORK';
-      console.log(`[API ERROR] ${originalRequest.method?.toUpperCase()} ${originalRequest.url} | ${status}`);
+      console.log("[MESSAY AUTH] Token renouvelé");
     }
 
-    // Refresh si 401
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
+    return newAccessToken;
+  } catch (error: unknown) {
+    // Déconnecter uniquement lorsque le serveur
+    // confirme que le refresh token est refusé.
+    // Une erreur réseau ou un HTTP 5xx ne doit
+    // pas supprimer automatiquement la session.
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status;
 
-      try {
-        const { refreshToken, setTokens, logout } = useAuthStore.getState();
-        
-        if (!refreshToken) throw new Error('No refresh token');
-
-        const response = await axios.post(`${API_URL}/auth/refresh`, { 
-          refreshToken 
-        });
-        
-        const { accessToken: newAccessToken, refreshToken: newRefreshToken } = response.data;
-        
-        await setTokens(newAccessToken, newRefreshToken || refreshToken);
-        
-        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-        return api(originalRequest);
-
-      } catch (refreshError) {
-        console.log("[AUTH] Refresh échoué -> logout");
+      if (
+        status === 400 ||
+        status === 401 ||
+        status === 403
+      ) {
         await useAuthStore.getState().logout();
-        return Promise.reject(refreshError);
       }
     }
 
-    // Erreur réseau (Render cold start)
-    if (!error.response && __DEV__) {
-      console.error("🚩 Erreur réseau. Vérifie l'URL ou attends 50s (Render free tier)");
+    if (__DEV__) {
+      console.warn(
+        "[MESSAY AUTH] Renouvellement impossible"
+      );
     }
 
-    return Promise.reject(error);
+    throw error;
+  }
+}
+
+// ============================================================
+// 5. INTERCEPTEUR DES REQUÊTES
+// ============================================================
+
+api.interceptors.request.use(
+  (config: InternalAxiosRequestConfig) => {
+    const { accessToken } = useAuthStore.getState();
+
+    // Les appels login/register/refresh ne doivent
+    // pas transmettre un ancien access token.
+    if (isAuthEndpoint(config.url)) {
+      delete config.headers.Authorization;
+      return config;
+    }
+
+    if (accessToken) {
+      config.headers.Authorization =
+        `Bearer ${accessToken}`;
+    } else {
+      delete config.headers.Authorization;
+
+      if (__DEV__) {
+        console.warn(
+          "[MESSAY API] Aucun access token :",
+          config.url
+        );
+      }
+    }
+
+    return config;
+  },
+  (error: unknown) => Promise.reject(error)
+);
+
+// ============================================================
+// 6. INTERCEPTEUR DES RÉPONSES
+// ============================================================
+
+api.interceptors.response.use(
+  (response) => response,
+
+  async (error: unknown) => {
+    if (!axios.isAxiosError(error)) {
+      return Promise.reject(error);
+    }
+
+    const originalRequest =
+      error.config as RetryableRequestConfig | undefined;
+
+    const status = error.response?.status;
+
+    if (__DEV__) {
+      console.warn(
+        "[MESSAY API]",
+        originalRequest?.method?.toUpperCase() ?? "REQUEST",
+        originalRequest?.url ?? "UNKNOWN",
+        status ?? "NETWORK_ERROR"
+      );
+    }
+
+    // Aucune tentative de refresh si :
+    // - ce n'est pas une erreur 401 ;
+    // - la requête a déjà été rejouée ;
+    // - l'erreur provient d'une route auth ;
+    // - Axios ne fournit pas de requête initiale.
+    if (
+      status !== 401 ||
+      !originalRequest ||
+      originalRequest._retry ||
+      isAuthEndpoint(originalRequest.url)
+    ) {
+      return Promise.reject(error);
+    }
+
+    originalRequest._retry = true;
+
+    try {
+      // Toutes les requêtes en erreur 401 partagent
+      // la même opération de renouvellement JWT.
+      if (!refreshPromise) {
+        refreshPromise = renewAccessToken().finally(() => {
+          refreshPromise = null;
+        });
+      }
+
+      const newAccessToken = await refreshPromise;
+
+      originalRequest.headers.Authorization =
+        `Bearer ${newAccessToken}`;
+
+      // Rejoue une seule fois la requête initiale.
+      return api(originalRequest);
+    } catch (refreshError) {
+      return Promise.reject(refreshError);
+    }
   }
 );
+
+// ============================================================
+// 7. EXPORT
+// ============================================================
 
 export default api;

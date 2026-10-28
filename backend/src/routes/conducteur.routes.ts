@@ -1,138 +1,32 @@
-import { Router } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { ConducteurController } from '../controllers/conducteur.controller';
-import { authenticate } from '../middleware/auth';
+import { authenticate, authorize } from '../middleware/auth';
+import {
+  getMyAvailability,
+  setMyAvailability,
+} from '../controllers/conducteurDisponibilite.controller';
 
 const router = Router();
-const conducteurController = new ConducteurController();
+const controller = new ConducteurController();
 
-/**
- * @swagger
- * /api/conducteurs:
- *   get:
- *     summary: Obtenir tous les conducteurs
- *     tags: [Conducteurs]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Liste des conducteurs
- *       401:
- *         description: Non autorisé
- */
-router.get('/', authenticate, conducteurController.getConducteurs);
+router.use(authenticate);
+router.use((req: Request, res: Response, next: NextFunction): void => {
+  if (req.user?.isBlocked) {
+    res.status(403).json({ error: 'Votre compte est bloqué' });
+    return;
+  }
+  next();
+});
 
-/**
- * @swagger
- * /api/conducteurs/{id}:
- *   get:
- *     summary: Obtenir un conducteur par ID
- *     tags: [Conducteurs]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Détails du conducteur
- *       404:
- *         description: Conducteur non trouvé
- */
-router.get('/:id', authenticate, conducteurController.getConducteurById);
+// Conducteur connecté. Toujours AVANT /:id.
+router.get('/me/disponibilite', authorize('CONDUCTEUR'), getMyAvailability);
+router.patch('/me/disponibilite', authorize('CONDUCTEUR'), setMyAvailability);
 
-/**
- * @swagger
- * /api/conducteurs:
- *   post:
- *     summary: Créer un nouveau conducteur
- *     tags: [Conducteurs]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               userId:
- *                 type: string
- *               permis:
- *                 type: string
- *               numeroPermis:
- *                 type: string
- *               vehiculeType:
- *                 type: string
- *               immatriculation:
- *                 type: string
- *     responses:
- *       201:
- *         description: Conducteur créé
- *       400:
- *         description: Données invalides
- */
-router.post('/', authenticate, conducteurController.createConducteur);
-
-/**
- * @swagger
- * /api/conducteurs/{id}:
- *   patch:
- *     summary: Mettre à jour un conducteur
- *     tags: [Conducteurs]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               permis:
- *                 type: string
- *               numeroPermis:
- *                 type: string
- *               vehiculeType:
- *                 type: string
- *               immatriculation:
- *                 type: string
- *               statut:
- *                 type: string
- *               isVerified:
- *                 type: boolean
- *     responses:
- *       200:
- *         description: Conducteur mis à jour
- */
-router.patch('/:id', authenticate, conducteurController.updateConducteur);
-
-/**
- * @swagger
- * /api/conducteurs/{id}:
- *   delete:
- *     summary: Supprimer un conducteur
- *     tags: [Conducteurs]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Conducteur supprimé
- */
-router.delete('/:id', authenticate, conducteurController.deleteConducteur);
+// Back-office administratif : ne jamais exposer ces opérations à un simple conducteur.
+router.get('/', authorize('ADMIN'), (req, res) => controller.getConducteurs(req, res));
+router.get('/:id', authorize('ADMIN'), (req, res) => controller.getConducteurById(req, res));
+router.post('/', authorize('ADMIN'), (req, res) => controller.createConducteur(req, res));
+router.patch('/:id', authorize('ADMIN'), (req, res) => controller.updateConducteur(req, res));
+router.delete('/:id', authorize('ADMIN'), (req, res) => controller.deleteConducteur(req, res));
 
 export default router;

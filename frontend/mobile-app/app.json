@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "icon": "./assets/logo.png",
+   "icon": "./assets/logo-square.png",
     "splash": {
       "image": "./assets/logo.png",
       "resizeMode": "contain",
@@ -39,9 +39,9 @@
       "versionCode": 1,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/logo.png",
+         "foregroundImage": "./assets/logo-square.png",
         "backgroundColor": "#FF6B35",
-        "monochromeImage": "./assets/logo.png"
+        "monochromeImage": "./assets/logo-square.png"
       },
       "permissions": [
         "ACCESS_FINE_LOCATION",

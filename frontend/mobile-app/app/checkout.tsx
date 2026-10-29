@@ -36,7 +36,7 @@ export default function Checkout(){
 
   return(
     <View style={s.c}>
-      <StatusBar barStyle="light-content" backgroundColor={color}/>
+      <StatusBar barStyle="light-content"/>
       <LinearGradient colors={[color,color]} style={s.h}><SafeAreaView edges={['top']}><View style={s.hb}><TouchableOpacity onPress={()=>router.back()}><Ionicons name="chevron-back" size={24} color="#FFF"/></TouchableOpacity><Text style={s.ht}>Paiement</Text><View style={{width:24}}/></View></SafeAreaView></LinearGradient>
       <ScrollView contentContainerStyle={{padding:16}}>
         <View style={s.card}><Text style={s.row}><Text style={s.bold}>Trajet:</Text> {p.depart} → {p.destination}</Text><Text style={s.row}><Text style={s.bold}>Date:</Text> {p.date} {p.heure}</Text><Text style={s.row}><Text style={s.bold}>Places:</Text> {p.seats}</Text><Text style={s.row}><Text style={s.bold}>Passager:</Text> {p.nom} ({p.phone})</Text><View style={s.div}/><Text style={s.total}>{p.total} FCFA</Text></View>

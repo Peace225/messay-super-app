@@ -228,7 +228,7 @@ export default function CoursesHistoriqueScreen() {
 
   return (
     <View style={styles.mainContainer}>
-      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      <StatusBar barStyle="light-content" />
 
       <LinearGradient colors={['#1e293b', '#0f172a']} style={styles.headerPremium}>
         <View style={styles.headerContent}>

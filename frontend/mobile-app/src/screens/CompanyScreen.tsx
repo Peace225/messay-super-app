@@ -538,7 +538,6 @@ export default function CompanyScreen() {
     <View style={styles.container}>
       <StatusBar
         barStyle="light-content"
-        backgroundColor={companyColor}
       />
 
       {/* EN-TÊTE COMPAGNIE */}

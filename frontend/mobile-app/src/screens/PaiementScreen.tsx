@@ -66,7 +66,7 @@ export default function PaiementScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" translucent />
+      <StatusBar barStyle="light-content" />
       
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 150 }}>
         {/* HEADER ZÉNITH 7D */}

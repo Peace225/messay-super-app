@@ -1,3 +1,4 @@
+import type { ScrollViewInstance } from 'react-native';
 
 import React, {
   useState,
@@ -211,7 +212,7 @@ export default function HomeScreen() {
     new Animated.Value(0)
   ).current;
 
-  const heroScrollRef = useRef<ScrollView>(null);
+  const heroScrollRef = useRef<ScrollViewInstance>(null);
   const heroIndexRef = useRef(0);
   const popupShownRef = useRef(false);
 

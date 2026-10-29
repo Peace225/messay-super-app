@@ -98,16 +98,16 @@
       ],
       [
         "expo-build-properties",
-        {
-          "android": {
-            "compileSdkVersion": 36,
-            "targetSdkVersion": 36,
-            "minSdkVersion": 24
-          },
-          "ios": {
-            "deploymentTarget": "16.4"
-          }
-        }
+  {
+    "android": {
+      "compileSdkVersion": 37,
+      "targetSdkVersion": 36,
+      "minSdkVersion": 24
+    },
+    "ios": {
+      "deploymentTarget": "16.4"
+    }
+  }
       ],
       "@react-native-community/datetimepicker",
       [

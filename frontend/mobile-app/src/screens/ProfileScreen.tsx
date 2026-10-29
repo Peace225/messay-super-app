@@ -716,8 +716,6 @@ export default function ProfileScreen() {
     >
       <StatusBar
         barStyle="light-content"
-        translucent
-        backgroundColor="transparent"
       />
 
       <ScrollView

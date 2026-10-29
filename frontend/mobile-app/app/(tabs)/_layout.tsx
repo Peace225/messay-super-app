@@ -138,7 +138,7 @@ export default function TabsLayout() {
               <Ionicons
                 name={focused ? 'grid' : 'grid-outline'}
                 size={26}
-                color={color}
+                color={typeof color === 'string' ? color : '#64748b'}
               />
             </AnimatedTabIcon>
           ),
@@ -186,7 +186,7 @@ export default function TabsLayout() {
               <Ionicons
                 name={focused ? 'bus' : 'bus-outline'}
                 size={26}
-                color={color}
+                color={typeof color === 'string' ? color : '#64748b'}
               />
             </AnimatedTabIcon>
           ),
@@ -206,7 +206,7 @@ export default function TabsLayout() {
               <Ionicons
                 name={focused ? 'person' : 'person-outline'}
                 size={26}
-                color={color}
+                color={typeof color === 'string' ? color : '#64748b'}
               />
             </AnimatedTabIcon>
           ),

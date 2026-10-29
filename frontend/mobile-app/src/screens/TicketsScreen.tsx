@@ -1,3 +1,4 @@
+import type { ScrollViewInstance } from 'react-native';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
@@ -72,7 +73,7 @@ export default function TicketsScreen() {
   const [search, setSearch] = useState('');
   const [companies, setCompanies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const logoScrollRef = useRef<ScrollView>(null);
+  const logoScrollRef = useRef<ScrollViewInstance>(null);
   const [currentLogoIndex, setCurrentLogoIndex] = useState(0);
 
   // Fetch depuis Supabase

@@ -1,3 +1,4 @@
+import type { TextInputInstance } from 'react-native';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput, Dimensions,
@@ -29,7 +30,7 @@ type PaymentType = 'cash' | 'momo';
 
 export default function TricyclePremium() {
   const mapRef = useRef<MapView>(null);
-  const destRef = useRef<TextInput>(null);
+  const destRef = useRef<TextInputInstance>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
 
   const [state, setState] = useState<AppState>('saisie');
@@ -231,7 +232,7 @@ export default function TricyclePremium() {
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <View style={s.container}>
-        <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+        <StatusBar barStyle="light-content" />
 
         <MapView
           ref={mapRef}

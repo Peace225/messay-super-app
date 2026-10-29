@@ -10,8 +10,7 @@ import {
   StatusBar,
   Image,
 } from 'react-native';
-import { Redirect, useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { Redirect, useRouter, useFocusEffect } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
 import { courseService, type Course, type CourseStatus } from '../services/courseService';
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';

@@ -7,6 +7,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './config/swagger';
 import routes from './routes';
+import { pushDevicesRouter } from './routes/pushDevices.routes';
 import { errorHandler, notFound } from './middleware/errorHandler';
 import logistiqueRoutes from './routes/logistique.routes';
 import { PrismaClient } from '@prisma/client';
@@ -71,6 +72,7 @@ app.get('/health', (_req: Request, res: Response) => {
 // Routes
 app.use('/api/logistique', logistiqueRoutes);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use('/api/push', pushDevicesRouter);
 app.use('/api', routes);
 
 // ===== FINANCE =====

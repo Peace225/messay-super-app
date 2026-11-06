@@ -1,137 +1,218 @@
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
+
 import prisma from '../config/database';
-import { generateQRCode } from '../utils/qrcode';
 
-export class TicketController {
-  async createTicket(req: Request, res: Response): Promise<void> {
-    try {
-      const {
-        compagnie,
-        depart,
-        destination,
-        dateDepart,
-        heureDepart,
-        siege,
-        prix,
-        passagerNom,
-        passagerPrenom,
-        telephone,
-        email,
-      } = req.body;
+const UUID_PATTERN = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i;
 
-      const userId = req.user!.id;
-      const user = req.user!;
+// IMPORTANT : tant que la migration Ticket n'est pas appliquée,
+// ne jamais effectuer de SELECT implicite de toutes les colonnes.
+// Prisma Client a déjà été généré avec affectationId/siegeNumero,
+// mais PostgreSQL Production ne possède pas encore ces colonnes.
+const legacyTicketSelect = {
+  id: true,
+  userId: true,
+  compagnie: true,
+  passagerNom: true,
+  passagerPrenom: true,
+  telephone: true,
+  email: true,
+  depart: true,
+  destination: true,
+  gareDepart: true,
+  gareArrivee: true,
+  dateDepart: true,
+  heureDepart: true,
+  numeroBus: true,
+  siege: true,
+  classe: true,
+  prix: true,
+  methodePaiement: true,
+  referencePaiement: true,
+  qrCode: true,
+  statut: true,
+  codeValidation: true,
+  dateValidation: true,
+  canalVente: true,
+  vendeurId: true,
+  paiementId: true,
+  createdAt: true,
+  updatedAt: true,
+} as const satisfies Prisma.TicketSelect;
 
-      const qrCode = await generateQRCode(`TICKET-${Date.now()}-${userId}`);
+function authenticatedUserId(req: Request): string | null {
+  // req.user est posé par le middleware authenticate (JWT MESSAY vérifié).
+  const id = req.user?.id;
+  return typeof id === 'string' && id.length > 0 ? id : null;
+}
 
-      const ticket = await prisma.ticket.create({
-        data: {
-          userId,
-          compagnie,
-          depart,
-          destination,
-          dateDepart: new Date(dateDepart),
-          heureDepart,
-          siege,
-          prix: parseFloat(prix),
-          qrCode,
-          statut: 'RESERVE',
-          passagerNom: passagerNom || user.nom, // ✅ AJOUTÉ
-          passagerPrenom: passagerPrenom || user.prenom, // ✅ AJOUTÉ
-          telephone: telephone || user.telephone, // ✅ AJOUTÉ
-          email: email || user.email, // ✅ AJOUTÉ
-        },
-        include: {
-          user: {
-            select: {
-              id: true,
-              nom: true,
-              prenom: true,
-              email: true,
-              telephone: true,
-            },
-          },
-        },
-      });
+function handleUnexpectedError(error: unknown, res: Response, operation: string): void {
+  console.error(`[TICKETS/${operation}]`, error);
 
-      res.status(201).json({ ticket });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === 'P2002') {
+      res.status(409).json({ error: 'Un billet avec les mêmes informations uniques existe déjà.' });
+      return;
+    }
+    if (error.code === 'P2003') {
+      res.status(400).json({ error: 'Une référence de ce billet est invalide.' });
+      return;
+    }
+    if (error.code === 'P2022') {
+      res.status(503).json({ error: 'Le schéma Ticket déployé ne correspond pas au client Prisma.' });
+      return;
     }
   }
 
-  async getUserTickets(req: Request, res: Response): Promise<void> {
-    try {
-      const userId = req.user!.id;
+  res.status(500).json({ error: 'Une erreur interne est survenue lors du traitement du billet.' });
+}
 
+export class TicketController {
+  async createTicket(req: Request, res: Response): Promise<void> {
+    const userId = authenticatedUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: 'Connexion requise.' });
+      return;
+    }
+
+    // FAIL CLOSED : création de billets temporairement suspendue.
+    // L'ancien endpoint faisait confiance au prix/siège envoyés par le mobile
+    // et ne réservait pas le siège dans messay_bus_sieges_reservations.
+    // Laisser ce code actif autoriserait un doublon avec MESSAY PRO.
+    // Ne réactiver qu'après création d'une transaction atomique commune :
+    //   1. vérifier départ, heure, compagnie et tarif côté serveur ;
+    //   2. réserver le siège dans la même transaction que Ticket ;
+    //   3. gérer paiement, annulation et expiration dans cette transaction.
+    res.status(503).json({
+      code: 'BILLETTERIE_INTERURBAINE_SUSPENDUE',
+      error: 'Les nouvelles réservations interurbaines sont temporairement indisponibles.',
+      paiementActif: false,
+      billetEmis: false,
+    });
+  }
+
+  async getUserTickets(req: Request, res: Response): Promise<void> {
+    const userId = authenticatedUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: 'Connexion requise.' });
+      return;
+    }
+
+    // Limiter la taille des réponses ; paginer ultérieurement si nécessaire.
+    const queryLimit = typeof req.query.limit === 'string'
+      ? Number(req.query.limit)
+      : 50;
+    if (!Number.isInteger(queryLimit) || queryLimit < 1 || queryLimit > 100) {
+      res.status(400).json({ error: 'limit doit être un entier de 1 à 100.' });
+      return;
+    }
+
+    try {
       const tickets = await prisma.ticket.findMany({
         where: { userId },
         orderBy: { createdAt: 'desc' },
+        take: queryLimit,
+        select: legacyTicketSelect,
       });
-
       res.status(200).json({ tickets });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error: unknown) {
+      handleUnexpectedError(error, res, 'LIST');
     }
   }
 
   async getTicketById(req: Request, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const userId = req.user!.id;
+    const userId = authenticatedUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: 'Connexion requise.' });
+      return;
+    }
 
+    const id = String(req.params.id ?? '');
+    if (!UUID_PATTERN.test(id)) {
+      res.status(400).json({ error: 'Identifiant de billet invalide.' });
+      return;
+    }
+
+    try {
       const ticket = await prisma.ticket.findFirst({
         where: { id, userId },
-        include: {
+        select: {
+          ...legacyTicketSelect,
           user: {
-            select: {
-              nom: true,
-              prenom: true,
-              email: true,
-              telephone: true,
-            },
+            select: { nom: true, prenom: true, email: true, telephone: true },
           },
         },
       });
-
       if (!ticket) {
-        res.status(404).json({ error: 'Ticket non trouvé' });
+        res.status(404).json({ error: 'Billet introuvable.' });
         return;
       }
-
       res.status(200).json({ ticket });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error: unknown) {
+      handleUnexpectedError(error, res, 'DETAIL');
     }
   }
 
   async annulerTicket(req: Request, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const userId = req.user!.id;
+    const userId = authenticatedUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: 'Connexion requise.' });
+      return;
+    }
 
+    const id = String(req.params.id ?? '');
+    if (!UUID_PATTERN.test(id)) {
+      res.status(400).json({ error: 'Identifiant de billet invalide.' });
+      return;
+    }
+
+    try {
       const ticket = await prisma.ticket.findFirst({
         where: { id, userId },
+        select: {
+          id: true, statut: true,
+          paiementId: true, referencePaiement: true,
+        },
       });
-
       if (!ticket) {
-        res.status(404).json({ error: 'Ticket non trouvé' });
+        res.status(404).json({ error: 'Billet introuvable.' });
         return;
       }
 
-      if (ticket.statut === 'UTILISE' || ticket.statut === 'ANNULE') {
-        res.status(400).json({ error: 'Ce ticket ne peut pas être annulé' });
+      // Les billets payés, utilisés ou déjà annulés nécessitent une autre
+      // procédure métier (remboursement/validation), pas un simple changement d'état.
+      if (ticket.statut !== 'RESERVE' || ticket.paiementId || ticket.referencePaiement) {
+        res.status(409).json({
+          error: 'Annulation directe impossible pour ce billet. Contactez le support si un paiement a été effectué.',
+        });
         return;
       }
 
-      const ticketUpdated = await prisma.ticket.update({
-        where: { id },
+      // Mise à jour conditionnelle : ne pas annuler une réservation dont
+      // le statut ou le paiement auraient changé pendant la requête.
+      const updated = await prisma.ticket.updateMany({
+        where: {
+          id,
+          userId,
+          statut: 'RESERVE',
+          paiementId: null,
+          referencePaiement: null,
+        },
         data: { statut: 'ANNULE' },
       });
 
+      if (updated.count !== 1) {
+        res.status(409).json({ error: 'Le billet a changé de statut. Veuillez actualiser.' });
+        return;
+      }
+
+      const ticketUpdated = await prisma.ticket.findUnique({
+        where: { id },
+        select: legacyTicketSelect,
+      });
       res.status(200).json({ ticket: ticketUpdated });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error: unknown) {
+      handleUnexpectedError(error, res, 'CANCEL');
     }
   }
 }

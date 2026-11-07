@@ -9,7 +9,7 @@ const paiementController = new PaiementController();
  * @swagger
  * /api/paiements:
  *   post:
- *     summary: Créer un paiement
+ *     summary: Création de paiements temporairement suspendue
  *     tags: [Paiements]
  *     security:
  *       - bearerAuth: []
@@ -31,8 +31,8 @@ const paiementController = new PaiementController();
  *               commandeBTPId:
  *                 type: string
  *     responses:
- *       201:
- *         description: Paiement créé
+ *       503:
+ *         description: Nouveaux paiements temporairement suspendus
  */
 router.post('/', authenticate, paiementController.createPaiement);
 

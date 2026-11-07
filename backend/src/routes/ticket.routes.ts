@@ -4,6 +4,7 @@ import { Router } from 'express';
 import { TicketController } from '../controllers/ticket.controller';
 import { getInterurbainPlaces } from '../controllers/interurbainPlaces.controller';
 import { getDepartsProgrammes } from '../controllers/interurbainDeparts.controller';
+import { getProgrammesLignes } from '../controllers/interurbainProgrammes.controller';
 import { authenticate } from '../middleware/auth';
 
 const router = Router();
@@ -47,6 +48,32 @@ const ticketController = new TicketController();
 router.get(
   '/departs-programmes',
   getDepartsProgrammes
+);
+
+/**
+ * @swagger
+ * /api/tickets/programmes-lignes:
+ *   get:
+ *     summary: Consulter les horaires publiés d'une compagnie
+ *     tags: [Tickets]
+ *     parameters:
+ *       - in: query
+ *         name: companyId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Programmes de lignes ou liste vide
+ *       400:
+ *         description: UUID invalide
+ *       503:
+ *         description: Catalogue indisponible
+ */
+router.get(
+  '/programmes-lignes',
+  getProgrammesLignes
 );
 
 /**

@@ -1,72 +1,147 @@
-import { Router, Request, Response } from 'express';
+
+import { Router, Request, Response, NextFunction } from 'express';
 import { CourseController } from '../controllers/course.controller';
-import { authenticate } from '../middleware/auth';
+import { authenticate, authorize } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { createCourseSchema, rateCourseSchema } from '../validators';
+import {
+  createCourseSchema,
+  rateCourseSchema,
+} from '../validators/course.validator';
 
 const router = Router();
-const courseController = new CourseController();
+const controller = new CourseController();
 
-// 🔒 Sécurité globale du routeur
+// ============================================================
+// 1. SÉCURITÉ GLOBALE
+// ============================================================
+
 router.use(authenticate);
 
-// ============================================================
-// 1. ROUTES DE RÉCUPÉRATION SPÉCIFIQUES (Radar & Livraisons)
-// ============================================================
+// Bloquer les utilisateurs désactivés
+router.use((req: Request, res: Response, next: NextFunction): void => {
+  if (req.user?.isBlocked) {
+    res.status(403).json({
+      error: 'Votre compte est bloqué',
+    });
+    return;
+  }
 
-// 💡 On utilise "/mine/..." pour garantir qu'Express ne confonde JAMAIS avec un ID
-router.get('/mine/conducteur', (req: Request, res: Response) => 
-  courseController.getConducteurCourses(req, res)
+  next();
+});
+
+// Vérifier que l'identifiant est un UUID valide
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+router.param(
+  'id',
+  (req: Request, res: Response, next: NextFunction, id: string): void => {
+    if (!UUID_PATTERN.test(id)) {
+      res.status(400).json({
+        error: 'Identifiant de course invalide',
+      });
+      return;
+    }
+
+    next();
+  }
 );
-
-router.get('/mine/chauffeur', (req: Request, res: Response) => 
-  courseController.getChauffeurLivraisons(req, res)
-);
-
-router.get('/nearby-drivers', (req: Request, res: Response) => 
-  courseController.findNearbyDrivers(req, res)
-);
-
-router.get('/weekly-stats', (req: Request, res: Response) => 
-  courseController.getWeeklyStats(req, res)
-);
-
-
-// ============================================================
-// 2. ROUTES GÉNÉRALES (Historique & Création)
-// ============================================================
-
-router.get('/', (req: Request, res: Response) => 
-  courseController.getUserCourses(req, res)
-);
-
-router.post('/', validate(createCourseSchema), (req: Request, res: Response) => 
-  courseController.createCourse(req, res)
-);
-
 
 // ============================================================
-// 3. ACTIONS & DÉTAILS (Routes avec :id TOUJOURS en dernier)
+// 2. ROUTES SPÉCIFIQUES
 // ============================================================
 
-router.get('/:id', (req: Request, res: Response) => 
-  courseController.getCourseById(req, res)
+// Historique du conducteur connecté
+router.get(
+  '/mine/conducteur',
+  authorize('CONDUCTEUR'),
+  controller.getConducteurCourses
 );
 
-router.post('/:id/rate', validate(rateCourseSchema), (req: Request, res: Response) => 
-  courseController.rateCourse(req, res)
+// Ancienne route BTP conservée pour compatibilité.
+// Le contrôleur corrigé renvoie 501.
+router.get(
+  '/mine/chauffeur',
+  authorize('CHAUFFEUR'),
+  controller.getChauffeurLivraisons
 );
 
-router.patch('/:id/accepter', (req: Request, res: Response) => 
-  courseController.accepterCourse(req, res)
+// Radar : courses en attente disponibles
+router.get(
+  '/disponibles',
+  authorize('CONDUCTEUR'),
+  controller.getAvailableCourses
 );
 
-router.patch('/:id/demarrer', (req: Request, res: Response) => 
-  courseController.demarrerCourse(req, res)
+// Conducteurs disponibles à proximité
+router.get(
+  '/nearby-drivers',
+  authorize('USER', 'ADMIN'),
+  controller.findNearbyDrivers
 );
 
-router.patch('/:id/terminer', (req: Request, res: Response) => 
-  courseController.terminerCourse(req, res)
+// Statistiques conducteur et administrateur
+router.get(
+  '/weekly-stats',
+  authorize('CONDUCTEUR', 'ADMIN'),
+  controller.getWeeklyStats
+);
+
+// ============================================================
+// 3. HISTORIQUE ET CRÉATION DE COURSE
+// ============================================================
+
+// Historique personnel
+router.get(
+  '/',
+  controller.getUserCourses
+);
+
+// Nouvelle commande de course
+router.post(
+  '/',
+  authorize('USER'),
+  validate(createCourseSchema),
+  controller.createCourse
+);
+
+// ============================================================
+// 4. DÉTAILS ET ACTIONS SUR LES COURSES
+// ============================================================
+
+// Consulter une course autorisée
+router.get(
+  '/:id',
+  controller.getCourseById
+);
+
+// Noter un conducteur après une course
+router.post(
+  '/:id/rate',
+  authorize('USER'),
+  validate(rateCourseSchema),
+  controller.rateCourse
+);
+
+// Accepter une course
+router.patch(
+  '/:id/accepter',
+  authorize('CONDUCTEUR'),
+  controller.accepterCourse
+);
+
+// Démarrer une course
+router.patch(
+  '/:id/demarrer',
+  authorize('CONDUCTEUR'),
+  controller.demarrerCourse
+);
+
+// Terminer une course
+router.patch(
+  '/:id/terminer',
+  authorize('CONDUCTEUR'),
+  controller.terminerCourse
 );
 
 export default router;

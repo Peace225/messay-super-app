@@ -1,10 +1,11 @@
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -194,9 +195,13 @@ model Conducteur {
   numeroPermis String @unique
   vehiculeType String @default("TRICYCLE")
   immatriculation String @unique
-  statut String @default("DISPONIBLE")
-  disponible Boolean @default(true)
-  isAvailable Boolean @default(true)
+
+  // Un nouveau conducteur ne doit pas recevoir
+  // de courses avant activation et verification.
+  statut String @default("HORS_LIGNE")
+  disponible Boolean @default(false)
+  isAvailable Boolean @default(false)
+
   positionLatitude Float?
   positionLongitude Float?
   note Float @default(5.0)
@@ -294,7 +299,10 @@ model Ticket {
   methodePaiement MoyenPaiement?
   referencePaiement String?
   qrCode String @unique
-  statut TicketStatus @default(PAYE)
+
+  // Une reservation n'est pas un paiement confirme.
+  statut TicketStatus @default(RESERVE)
+
   codeValidation String? @unique
   dateValidation DateTime?
   canalVente CanalVente @default(GUICHET)
@@ -430,7 +438,10 @@ model Transaction {
   id String @id @default(uuid())
   montant Float
   type TypeMouvement
-  statut StatutMouvement @default(VALIDE)
+
+  // Validation seulement apres confirmation.
+  statut StatutMouvement @default(EN_ATTENTE)
+
   motif String?
   conducteurId String?
   conducteur Conducteur? @relation(fields: [conducteurId], references: [id])

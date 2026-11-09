@@ -4,7 +4,10 @@ import { Router } from 'express';
 import { TicketController } from '../controllers/ticket.controller';
 import { getInterurbainPlaces } from '../controllers/interurbainPlaces.controller';
 import { getDepartsProgrammes } from '../controllers/interurbainDeparts.controller';
-import { getProgrammesLignes } from '../controllers/interurbainProgrammes.controller';
+import {
+  getProgrammesLignes,
+  getCompagniesSuggestions,
+} from '../controllers/interurbainProgrammes.controller';
 import { authenticate } from '../middleware/auth';
 
 const router = Router();
@@ -74,6 +77,17 @@ router.get(
 router.get(
   '/programmes-lignes',
   getProgrammesLignes
+);
+
+/**
+ * GET /api/tickets/compagnies-suggestions
+ *
+ * Jusqu'à 4 compagnies alternatives réelles.
+ * Consultation publique, sans réservation.
+ */
+router.get(
+  '/compagnies-suggestions',
+  getCompagniesSuggestions
 );
 
 /**

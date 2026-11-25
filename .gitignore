@@ -41,4 +41,16 @@ yarn-error.log*
 # Project Specific
 backend/.env
 mobile-app/.env
-admin-dashboard/.env
+admin-dashboard/.env/messay-audit.zip
+/frontend/mobile-app/src/screens/HomeScreen.tsx.before-search.bak
+
+# Configuration locale Dashboard Compagnie
+company-dashboard/.env
+
+# MESSAY - fichiers locaux et sauvegardes
+/backend/src/.messay_e46_*/
+*.bak
+*.bak.*
+*.dump
+/messay-audit.zip
+**/*credentials*.json

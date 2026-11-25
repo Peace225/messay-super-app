@@ -1,474 +1,373 @@
-import { useState } from 'react'
-import { 
-  Bus, 
-  MapPin, 
-  Ticket, 
-  Wallet, 
-  TrendingUp, 
-  Download, 
-  Plus, 
-  ArrowUpRight,
-  Clock,
-  Shield,
-  Building2,
-  ChevronRight
-} from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  ArrowRight, ArrowUpRight, BellRing, Building2, BusFront, CalendarClock,
+  CheckCircle2, ChevronRight, CircleAlert, Clock3, FileCheck2,
+  ListChecks, MapPin, RefreshCw, Route, ShieldCheck,
+  TicketCheck, UsersRound, Wallet, Armchair, Phone,
+} from 'lucide-react';
+import {
+  companyDashboardApi,
+  type CompanyProfile,
+  type AssignedBusDeparture,
+} from '../lib/companyDashboardApi';
+import { garesManagementApi } from '../services/garesManagementApi';
+import { garePlanningApi } from '../services/garePlanningApi';
+import { messayBusApi } from '../services/messayBusApi';
+import { chauffeursInterurbainsApi } from '../services/chauffeursInterurbainsApi';
+
+const number = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+const count = (value: unknown): string => number(value)?.toLocaleString('fr-FR') ?? '—';
+const fcfa = (value: unknown): string => {
+  const amount = number(value);
+  return amount === null ? '—' : `${Math.round(amount).toLocaleString('fr-FR')} FCFA`;
+};
+const formatDeparture = (day: string, hour: string): string => {
+  const date = new Date(`${day}T${hour}:00Z`);
+  return Number.isFinite(date.getTime())
+    ? date.toLocaleString('fr-FR', {
+        dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Abidjan',
+      })
+    : `${day} · ${hour}`;
+};
+
+const field = (data: unknown, ...names: string[]): string => {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return '';
+  const record = data as Record<string, unknown>;
+  for (const name of names) {
+    const value = record[name];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+};
+
+type Approval = CompanyProfile['approval_status'];
+const approvalInfo: Record<NonNullable<Approval>, { label: string; cls: string }> = {
+  draft: { label: 'Dossier brouillon', cls: 'bg-slate-100 text-slate-700' },
+  pending: { label: 'En attente de validation', cls: 'bg-amber-50 text-amber-800' },
+  approved: { label: 'Compagnie approuvée', cls: 'bg-emerald-50 text-emerald-800' },
+  rejected: { label: 'Dossier à corriger', cls: 'bg-red-50 text-red-700' },
+};
+
+function SectionHead({ eyebrow, title, subtitle, href, action }: {
+  eyebrow: string;
+  title: string;
+  subtitle?: string;
+  href?: string;
+  action?: string;
+}) {
+  return <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <div>
+      <p className="text-[10px] font-black uppercase tracking-[.16em] text-orange-600">{eyebrow}</p>
+      <h2 className="mt-1 text-lg font-black tracking-tight text-slate-900 sm:text-xl">{title}</h2>
+      {subtitle && <p className="mt-1 text-xs leading-5 text-slate-500">{subtitle}</p>}
+    </div>
+    {href && <Link to={href} className="inline-flex items-center gap-1 text-xs font-extrabold text-orange-600 transition hover:gap-2 hover:text-orange-700">
+      {action || 'Voir tout'} <ArrowUpRight size={15} />
+    </Link>}
+  </div>;
+}
+
+function StatCard({ label, value, hint, icon, href, accent = false }: {
+  label: string; value: string; hint: string; icon: ReactNode; href: string; accent?: boolean;
+}) {
+  return <Link to={href} className="group block rounded-[22px] border border-slate-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-orange-200 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500">
+    <div className="flex items-start justify-between gap-3">
+      <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${accent ? 'bg-orange-50 text-orange-600' : 'bg-slate-100 text-slate-700'}`}>{icon}</div>
+      <ArrowUpRight size={17} className="text-slate-300 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-orange-500" />
+    </div>
+    <p className="mt-5 text-[10px] font-black uppercase tracking-[.12em] text-slate-400">{label}</p>
+    <p className="mt-1 text-2xl font-black tabular-nums text-slate-900">{value}</p>
+    <p className="mt-2 text-xs leading-5 text-slate-500">{hint}</p>
+  </Link>;
+}
+
+function ActionLink({ href, icon, title, desc }: { href: string; icon: ReactNode; title: string; desc: string }) {
+  return <Link to={href} className="group flex items-center gap-3 rounded-2xl border border-slate-100 bg-white p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-orange-200 hover:shadow-md">
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">{icon}</div>
+    <div className="min-w-0 flex-1">
+      <p className="text-sm font-extrabold text-slate-900">{title}</p>
+      <p className="mt-0.5 text-[11px] leading-4 text-slate-500">{desc}</p>
+    </div>
+    <ChevronRight size={16} className="shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-orange-600" />
+  </Link>;
+}
+
+function StatusLine({ label, status, href }: { label: string; status: 'ok' | 'missing' | 'unknown'; href: string }) {
+  const data = {
+    ok: { icon: <CheckCircle2 size={17} />, cls: 'text-emerald-600', text: 'Configuré' },
+    missing: { icon: <CircleAlert size={17} />, cls: 'text-amber-600', text: 'À compléter' },
+    unknown: { icon: <Clock3 size={17} />, cls: 'text-slate-400', text: 'À vérifier' },
+  }[status];
+  return <Link to={href} className="flex items-center gap-3 rounded-xl px-2 py-3 transition hover:bg-slate-50">
+    <span className={data.cls}>{data.icon}</span>
+    <span className="flex-1 text-sm font-bold text-slate-700">{label}</span>
+    <span className={`text-[10px] font-extrabold ${data.cls}`}>{data.text}</span>
+    <ChevronRight size={14} className="text-slate-300" />
+  </Link>;
+}
+
+function stepStatus(value: unknown): 'ok' | 'missing' | 'unknown' {
+  const n = number(value);
+  return n === null ? 'unknown' : n > 0 ? 'ok' : 'missing';
+}
 
 export default function Dashboard() {
-  const [viewMode, setViewMode] = useState<'superadmin' | 'company'>('superadmin')
-  const [selectedComp, setSelectedComp] = useState('MD Transport')
+  const [garesCount, setGaresCount] = useState<number | null>(null);
+  const [lignesCount, setLignesCount] = useState<number | null>(null);
+  const [horairesCount, setHorairesCount] = useState<number | null>(null);
+  const [busCount, setBusCount] = useState<number | null>(null);
+  const [chauffeursCount, setChauffeursCount] = useState<number | null>(null);
+  const [profile, setProfile] = useState<CompanyProfile | null>(null);
+  const [departures, setDepartures] = useState<AssignedBusDeparture[] | null>(null);
+  const [departuresComplete, setDeparturesComplete] = useState(false);
+  const [departuresError, setDeparturesError] = useState('');
+  const [gareNames, setGareNames] = useState<Record<string, string>>({});
+  const [destinationNames, setDestinationNames] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const requestId = useRef(0);
 
-  // Données Super Admin
-  const adminStats = [
-    { label: 'COMPAGNIES ACTIVES', val: '4', max: '/ 5', trend: '+2', trendUp: true, icon: Building2, iconColor: 'text-orange-500', iconBg: 'bg-orange-50' },
-    { label: 'GARES TOTALES', val: '06', max: '/ 8', trend: '+12%', trendUp: true, icon: MapPin, iconColor: 'text-gray-700', iconBg: 'bg-gray-100' },
-    { label: 'TICKETS VENDUS', val: '6', max: 'global', pill: '5 ajd.', icon: Ticket, iconColor: 'text-gray-700', iconBg: 'bg-gray-100' },
-    { label: 'VOLUME PLATEFORME', val: '35 000', currency: 'FCFA', sub: 'Total encaissé', icon: Wallet, iconColor: 'text-orange-500', iconBg: 'bg-orange-50' },
-  ]
+  const load = useCallback(async () => {
+    const request = ++requestId.current;
+    setLoading(true);
+    // Chaque appel utilise le service métier existant et la session de l'utilisateur.
+    // Une erreur sur une API n'empêche pas les autres indicateurs de fonctionner.
+    const [profileRes, departuresRes, garesRes, lignesRes, busRes, chauffeursRes] =
+      await Promise.allSettled([
+        companyDashboardApi.getProfile(),
+        companyDashboardApi.getUpcomingAssignedDepartures(),
+        garesManagementApi.list(),
+        garePlanningApi.reseauDirection(),
+        messayBusApi.lister(),
+        chauffeursInterurbainsApi.list(),
+      ]);
 
-  const companiesList = [
-    { name: 'MD Transport', lieu: 'Adjamé, Abidjan', gares: 3, tickets: 4, solde: '2 120 000', quota: 55, color: 'bg-orange-500' },
-    { name: 'UTB CI', lieu: 'Yopougon, Abidjan', gares: 2, tickets: 1, solde: '980 000', quota: 66, color: 'bg-blue-600' },
-    { name: 'SBTA', lieu: 'Treichville, Abidjan', gares: 1, tickets: 1, solde: '450 000', quota: 80, color: 'bg-emerald-600' },
-    { name: 'CFA Voyage', lieu: 'Bouaké Centre', gares: 0, tickets: 0, solde: '0', quota: 0, color: 'bg-purple-600' },
-  ]
+    if (request !== requestId.current) return;
 
-  // Données Compagnie
-  const stats = [
-    { 
-      label: 'SOLDE DISPONIBLE', 
-      val: '2 450 000', 
-      currency: 'FCFA', 
-      sub: 'Ce mois', 
-      trend: '+12.5%', 
-      trendUp: true,
-      icon: Wallet, 
-      iconColor: 'text-orange-500', 
-      iconBg: 'bg-orange-50'
-    },
-    { 
-      label: 'BILLETS VENDUS', 
-      val: '342', 
-      max: '/ 500', 
-      sub: 'vs hier', 
-      trend: '+8.2%', 
-      trendUp: true,
-      progress: 68,
-      icon: Ticket, 
-      iconColor: 'text-gray-700', 
-      iconBg: 'bg-gray-100'
-    },
-    { 
-      label: 'GARES ACTIVES', 
-      val: '08', 
-      max: '/ 10',
-      sub: 'actives',
-      pill: '2 en attente',
-      progress: 80,
-      icon: MapPin, 
-      iconColor: 'text-gray-700', 
-      iconBg: 'bg-gray-100'
-    },
-    { 
-      label: 'CHAUFFEURS EN LIGNE', 
-      val: '24', 
-      max: '/ 32',
-      sub: 'disponibles',
-      pill: 'En direct',
-      pillColor: 'bg-red-50 text-red-600',
-      pillDot: 'bg-red-500',
-      progress: 75,
-      icon: Bus, 
-      iconColor: 'text-orange-500', 
-      iconBg: 'bg-orange-50'
-    },
-  ]
+    setProfile(profileRes.status === 'fulfilled' ? profileRes.value : null);
+    setGaresCount(
+      garesRes.status === 'fulfilled' && Array.isArray(garesRes.value)
+        ? garesRes.value.length
+        : null,
+    );
+    const lignes = lignesRes.status === 'fulfilled' && Array.isArray(lignesRes.value.lignes)
+      ? lignesRes.value.lignes
+      : null;
+    setLignesCount(lignes?.length ?? null);
+    // Les horaires doivent venir de lignes publiées, jamais être générés dans l'interface.
+    setHorairesCount(lignes === null ? null : lignes.reduce((total, ligne) => {
+      const horaires: unknown = ligne.horaires;
+      return total + (Array.isArray(horaires) ? horaires.length : 0);
+    }, 0));
+    setBusCount(
+      busRes.status === 'fulfilled' && Array.isArray(busRes.value.vehicules)
+        ? busRes.value.vehicules.length
+        : null,
+    );
+    setChauffeursCount(
+      chauffeursRes.status === 'fulfilled' && Array.isArray(chauffeursRes.value)
+        ? chauffeursRes.value.length
+        : null,
+    );
 
-  const gares = [
-    { nom: 'Gare Yopougon', lieu: 'Abidjan • Yopougon', chef: 'Kouadio M.', initials: 'KM', quota: 120, vendus: 98, progress: 81 },
-    { nom: 'Gare Adjamé', lieu: 'Abidjan • Adjamé', chef: 'Aïcha T.', initials: 'AT', quota: 150, vendus: 132, progress: 88 },
-    { nom: 'Gare Daloa', lieu: 'Daloa • Centre', chef: 'Jean-Paul F.', initials: 'JP', quota: 80, vendus: 45, progress: 56 },
-    { nom: 'Gare Akoupé', lieu: 'Akoupé • Ville', chef: 'Yao B.', initials: 'YB', quota: 50, vendus: 50, progress: 100 },
-  ]
+    // Departs datés : une affectation de bus est exigée pour chaque ligne.
+    setDepartures(departuresRes.status === 'fulfilled' ? departuresRes.value.departures : null);
+    setDeparturesComplete(departuresRes.status === 'fulfilled' && departuresRes.value.complete);
+    setDeparturesError(departuresRes.status === 'rejected'
+      ? (departuresRes.reason instanceof Error ? departuresRes.reason.message : String(departuresRes.reason))
+      : '');
 
-  return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-10">
-      
-      {/* En-tête & Sélecteur de Vue (Super Admin / Compagnie) */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-[24px] border border-gray-100 shadow-sm">
-        <div>
-          <h2 className="text-2xl font-black text-gray-900">Dashboard</h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {viewMode === 'superadmin' 
-              ? "Vue globale Super Admin • Contrôle et supervision de la plateforme" 
-              : `Espace de gestion : ${selectedComp}`}
-          </p>
+    const namesByGare: Record<string, string> = {};
+    if (garesRes.status === 'fulfilled' && Array.isArray(garesRes.value)) {
+      for (const gare of garesRes.value) {
+        if (typeof gare.id === 'string') namesByGare[gare.id] = gare.nom || 'Gare non renseignée';
+      }
+    }
+    setGareNames(namesByGare);
+
+    const namesByDestination: Record<string, string> = {};
+    if (lignes !== null) {
+      for (const ligne of lignes) {
+        const id = field(ligne, 'id', 'destination_id', 'destinationId');
+        const name = field(ligne, 'ville_arrivee', 'villeArrivee', 'gare_arrivee_nom', 'destination');
+        if (id && name) namesByDestination[id] = name;
+      }
+    }
+    setDestinationNames(namesByDestination);
+
+    const reason = (value: unknown) => value instanceof Error ? value.message : String(value);
+    const messages: string[] = [];
+    if (garesRes.status === 'rejected') messages.push(`Gares : ${reason(garesRes.reason)}`);
+    if (lignesRes.status === 'rejected') messages.push(`Lignes / horaires : ${reason(lignesRes.reason)}`);
+    if (busRes.status === 'rejected') messages.push(`Bus : ${reason(busRes.reason)}`);
+    if (chauffeursRes.status === 'rejected') messages.push(`Chauffeurs : ${reason(chauffeursRes.reason)}`);
+    if (profileRes.status === 'rejected') messages.push(`Profil : ${reason(profileRes.reason)}`);
+    // L'API d'occupation absente n'est plus appelée. L'erreur éventuelle du
+    // catalogue des bus affectés est affichée dans sa section dédiée.
+    setErrors(messages);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void load();
+    return () => { requestId.current += 1; };
+  }, [load]);
+
+  // Le profil, validé par l'API, est notre seule source d'informations compagnie.
+  const currentCompany = profile;
+  const nextDepartures = useMemo(() => (departures ?? [])
+    .slice()
+    .sort((a, b) => `${a.date_depart}T${a.heure_depart}`.localeCompare(`${b.date_depart}T${b.heure_depart}`))
+    .slice(0, 4), [departures]);
+  // L'inventaire des billets historiques n'étant pas réconcilié,
+  // aucun total « vendu » ni « libre » ne doit être présenté comme confirmé.
+  const approval = currentCompany?.approval_status;
+  const approvalBadge = approval && Object.prototype.hasOwnProperty.call(approvalInfo, approval)
+    ? approvalInfo[approval as keyof typeof approvalInfo]
+    : null;
+  const profileHasContact = currentCompany ? Boolean(currentCompany.name?.trim() && currentCompany.telephone?.trim()) : null;
+  const stateForProfile = profileHasContact === null ? 'unknown' : profileHasContact ? 'ok' : 'missing';
+
+  return <div className="mx-auto max-w-7xl space-y-7 pb-12">
+    {/* Présentation : la compagnie est déterminée par la session côté serveur. */}
+    <div className="relative overflow-hidden rounded-[28px] bg-[#151E33] p-6 text-white shadow-xl shadow-slate-200 sm:p-8">
+      <div aria-hidden="true" className="pointer-events-none absolute -right-12 -top-24 h-72 w-72 rounded-full bg-orange-500/20 blur-3xl" />
+      <div className="relative flex flex-wrap items-start justify-between gap-5">
+        <div className="flex min-w-0 items-center gap-4">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/15 bg-white/10">
+            {currentCompany?.logo_url ? <img src={currentCompany.logo_url} alt={`Logo de ${currentCompany.name}`} className="h-full w-full object-contain" /> : <Building2 size={28} className="text-orange-300" />}
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-[.2em] text-orange-300">MESSAY PRO · TRANSPORT INTERURBAIN</p>
+            <h1 className="mt-1 truncate text-2xl font-black tracking-tight sm:text-3xl">{currentCompany?.name || (loading ? 'Chargement…' : 'Espace compagnie')}</h1>
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-300">
+              <span className="inline-flex items-center gap-1"><Phone size={13} />{currentCompany?.telephone || 'Téléphone à renseigner'}</span>
+              <span className="inline-flex items-center gap-1"><MapPin size={13} />{currentCompany?.siege_address || currentCompany?.gare_address || 'Adresse à renseigner'}</span>
+            </div>
+          </div>
         </div>
-        
-        <div className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-2xl border border-gray-100">
-          <button 
-            onClick={() => setViewMode('superadmin')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
-              viewMode === 'superadmin' 
-                ? 'bg-[#1a1a1c] text-white shadow-md' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Shield size={14} /> Super Admin
-          </button>
-          <button 
-            onClick={() => setViewMode('company')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
-              viewMode === 'company' 
-                ? 'bg-orange-500 text-white shadow-md shadow-orange-200' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Building2 size={14} /> Vue Compagnie
-          </button>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/compagnie" className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-xs font-black text-slate-900 transition hover:bg-orange-50"><Building2 size={16} /> Mon profil</Link>
+          <button type="button" onClick={() => void load()} disabled={loading} className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-xs font-black text-white transition hover:bg-white/20 disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''}/>{loading ? 'Chargement…' : 'Actualiser'}</button>
         </div>
       </div>
-
-      {viewMode === 'superadmin' ? (
-        /* ================= VUE SUPER ADMIN ================= */
-        <div className="space-y-6">
-          
-          {/* Statistiques Globales */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-            {adminStats.map((c, i) => (
-              <div key={i} className="bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
-                <div className="flex justify-between items-start mb-4">
-                  <div className={`w-10 h-10 rounded-xl ${c.iconBg} ${c.iconColor} flex items-center justify-center`}>
-                    <c.icon size={20} strokeWidth={2.5} />
-                  </div>
-                  {c.trend && (
-                    <div className="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full bg-green-50 text-green-600">
-                      <TrendingUp size={12} /> {c.trend}
-                    </div>
-                  )}
-                  {c.pill && (
-                    <div className="flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full bg-orange-50 text-orange-600 border border-orange-100">
-                      {c.pill}
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <p className="text-[11px] font-bold text-gray-400 tracking-wider mb-1">{c.label}</p>
-                  <div className="flex items-baseline gap-1">
-                    <h3 className="text-2xl font-black text-gray-900">{c.val}</h3>
-                    {c.max && <span className="text-sm font-bold text-gray-400">{c.max}</span>}
-                    {c.currency && <span className="text-sm font-bold text-gray-400 ml-1">{c.currency}</span>}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Liste des Compagnies */}
-          <div className="bg-white rounded-[24px] border border-gray-100 p-6 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-              <div>
-                <h3 className="text-lg font-black text-gray-900">Toutes les compagnies</h3>
-                <p className="text-xs text-gray-500">Supervisez l'activité et l'état des quotas de chaque opérateur</p>
-              </div>
-              <button className="px-5 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-colors shadow-sm shadow-orange-200">
-                <Plus size={16} /> Ajouter compagnie
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {companiesList.map((comp, i) => (
-                <div key={i} className="bg-gray-50/50 rounded-2xl p-5 border border-gray-100 hover:border-orange-200 hover:bg-white transition-all flex flex-col justify-between group">
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className={`w-10 h-10 rounded-xl ${comp.color} text-white flex items-center justify-center font-bold text-sm shadow-sm`}>
-                        {comp.name.substring(0, 2).toUpperCase()}
-                      </div>
-                      <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                    </div>
-                    <h4 className="font-bold text-gray-900">{comp.name}</h4>
-                    <p className="text-[11px] text-gray-400 mb-4">{comp.lieu}</p>
-
-                    <div className="grid grid-cols-3 gap-2 py-3 border-y border-gray-100 mb-4 text-center">
-                      <div>
-                        <p className="text-xs font-black text-gray-900">{comp.gares}</p>
-                        <p className="text-[9px] text-gray-400 uppercase">Gares</p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-black text-gray-900">{comp.tickets}</p>
-                        <p className="text-[9px] text-gray-400 uppercase">Tickets</p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-black text-gray-900">{comp.solde.substring(0, 4)}...</p>
-                        <p className="text-[9px] text-gray-400 uppercase">Solde</p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1 mb-4">
-                      <div className="flex justify-between text-[11px]">
-                        <span className="text-gray-400">Occupation quota</span>
-                        <span className="font-bold text-gray-900">{comp.quota}%</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${comp.color}`} style={{ width: `${comp.quota}%` }}></div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button 
-                    onClick={() => { setSelectedComp(comp.name); setViewMode('company'); }}
-                    className="w-full py-2.5 bg-[#1a1a1c] hover:bg-orange-500 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
-                  >
-                    Gérer la compagnie <ChevronRight size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Tickets Récents & Retraits en attente */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-[24px] border border-gray-100 p-6 shadow-sm">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-black text-gray-900 text-sm">Tickets récents • Toutes compagnies</h3>
-                <span className="text-xs font-bold text-orange-500 cursor-pointer hover:underline">Voir tout</span>
-              </div>
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-2xl border border-gray-100">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-orange-500 text-white font-bold text-xs flex items-center justify-center">MD</div>
-                  <div>
-                    <p className="text-xs font-bold text-gray-900">Abidjan → Akoupé • Adjamé</p>
-                    <p className="text-[10px] text-gray-400">Kouamé Fabrice • Aujourd'hui 08:30</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs font-bold text-gray-900">3 500 F</p>
-                  <span className="text-[10px] text-green-600 font-bold bg-green-50 px-2 py-0.5 rounded-md">payé</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-[24px] border border-gray-100 p-6 shadow-sm">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-black text-gray-900 text-sm">Retraits en attente</h3>
-                <span className="text-xs font-bold text-orange-500 cursor-pointer hover:underline">1 en attente</span>
-              </div>
-              <div className="flex items-center justify-between p-3 bg-orange-50/50 rounded-2xl border border-orange-100">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-orange-500 text-white font-bold text-xs flex items-center justify-center">MD</div>
-                  <div>
-                    <p className="text-xs font-bold text-gray-900">MD Transport</p>
-                    <p className="text-[10px] text-gray-400">Orange Money • 10 Nov 2024</p>
-                  </div>
-                </div>
-                <div className="text-right flex items-center gap-3">
-                  <div>
-                    <p className="text-xs font-black text-gray-900">250,000 F</p>
-                  </div>
-                  <button className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-xs font-bold shadow-sm transition-colors">
-                    Valider
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+      <div className="relative mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className={`rounded-full px-3 py-1.5 text-xs font-extrabold ${approvalBadge?.cls || 'bg-white/10 text-slate-200'}`}><ShieldCheck size={14} className="mr-1 inline"/>{approvalBadge?.label || 'Statut de validation non configuré'}</span>
+          <span className="text-xs text-slate-300">La visibilité dans l’app mobile doit être décidée par l’API après approbation ADMIN.</span>
         </div>
-      ) : (
-        /* ================= VUE COMPAGNIE ================= */
-        <div className="space-y-8">
-          
-          {/* Cartes de statistiques (Top Row) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-            {stats.map((c, i) => (
-              <div key={i} className="bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
-                <div className="flex justify-between items-start mb-4">
-                  <div className={`w-10 h-10 rounded-xl ${c.iconBg} ${c.iconColor} flex items-center justify-center`}>
-                    <c.icon size={20} strokeWidth={2.5} />
-                  </div>
-                  
-                  {c.trend && (
-                    <div className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full ${c.trendUp ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-                      <TrendingUp size={12} />
-                      {c.trend}
-                    </div>
-                  )}
-                  {c.pill && (
-                    <div className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border ${c.pillColor || 'bg-gray-50 text-gray-600 border-gray-200'}`}>
-                      {c.pillDot && <span className={`w-1.5 h-1.5 rounded-full ${c.pillDot}`}></span>}
-                      {c.pill}
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <p className="text-[11px] font-bold text-gray-400 tracking-wider mb-1">{c.label}</p>
-                  <div className="flex items-baseline gap-1">
-                    <h3 className="text-2xl font-black text-gray-900">{c.val}</h3>
-                    {c.max && <span className="text-sm font-bold text-gray-400">{c.max}</span>}
-                    {c.currency && <span className="text-sm font-bold text-gray-400 ml-1">{c.currency}</span>}
-                  </div>
-                  <p className="text-xs text-gray-400 mt-1">{c.sub}</p>
-                </div>
-
-                {c.progress !== undefined && (
-                  <div className="mt-5 w-full bg-gray-100 rounded-full h-1.5">
-                    <div 
-                      className={`h-1.5 rounded-full ${c.progress > 85 ? 'bg-green-500' : c.progress > 50 ? 'bg-gray-800' : 'bg-orange-500'}`} 
-                      style={{ width: `${c.progress}%` }}
-                    ></div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Section Principale : Tableau et Compte de Revue */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* Colonne de Gauche (Gares & Ventes) */}
-            <div className="lg:col-span-2 bg-white rounded-[24px] border border-gray-100 shadow-sm p-1">
-              <div className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-50">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gray-900 rounded-xl flex items-center justify-center text-white">
-                    <MapPin size={18} />
-                  </div>
-                  <div>
-                    <h3 className="font-black text-gray-900">Gares & Ventes</h3>
-                    <p className="text-xs text-gray-500">Suivi en temps réel des quotas par gare</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button className="flex items-center gap-2 px-4 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-bold rounded-xl transition-colors">
-                    <Download size={14} /> Exporter CSV
-                  </button>
-                  <button className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-xl transition-colors shadow-sm shadow-orange-200">
-                    <Plus size={14} /> Ajouter Gare
-                  </button>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="text-[10px] uppercase tracking-wider text-gray-400 border-b border-gray-50">
-                      <th className="p-4 font-bold">Gare / Département</th>
-                      <th className="p-4 font-bold">Chef de Gare</th>
-                      <th className="p-4 font-bold">Quota</th>
-                      <th className="p-4 font-bold">Ventes</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {gares.map((gare, i) => (
-                      <tr key={i} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="p-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-xs font-bold">
-                              {gare.nom.charAt(0)}
-                            </div>
-                            <div>
-                              <p className="font-bold text-sm text-gray-900">{gare.nom}</p>
-                              <p className="text-[11px] text-gray-500 flex items-center gap-1 mt-0.5">
-                                <MapPin size={10} /> {gare.lieu}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="p-4">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-gray-800 text-white flex items-center justify-center text-[10px] font-bold">
-                              {gare.initials}
-                            </div>
-                            <span className="text-sm font-semibold text-gray-700">{gare.chef}</span>
-                          </div>
-                        </td>
-                        <td className="p-4">
-                          <p className="text-sm font-black text-gray-900">{gare.quota} <span className="text-xs font-normal text-gray-500">billets</span></p>
-                          <p className="text-[10px] text-gray-400">Quota journalier</p>
-                        </td>
-                        <td className="p-4">
-                          <div className="flex items-center gap-3">
-                            <div>
-                              <p className="text-sm font-black text-gray-900">{gare.vendus}</p>
-                              <p className="text-[10px] text-gray-400">vendus</p>
-                            </div>
-                            <div className="flex-1 min-w-[60px] max-w-[100px] h-1.5 bg-gray-100 rounded-full">
-                              <div 
-                                className={`h-1.5 rounded-full ${gare.progress >= 100 ? 'bg-green-500' : 'bg-gray-800'}`}
-                                style={{ width: `${gare.progress}%` }}
-                              ></div>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Colonne de Droite (Finance & Widgets) */}
-            <div className="space-y-6">
-              
-              {/* Carte Sombre Compte de Revue */}
-              <div className="bg-[#1C1C1E] rounded-[24px] p-6 text-white shadow-lg relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/10 rounded-full blur-3xl"></div>
-                
-                <div className="flex justify-between items-start relative z-10">
-                  <p className="text-[11px] font-bold text-gray-400 tracking-widest">COMPTE DE REVUE</p>
-                  <button className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
-                    <Wallet size={14} className="text-gray-300" />
-                  </button>
-                </div>
-
-                <div className="mt-4 relative z-10">
-                  <h3 className="text-3xl font-black">
-                    2 450 000 <span className="text-sm font-normal text-gray-400">FCFA</span>
-                  </h3>
-                  <p className="text-xs text-gray-400 mt-1">Disponible pour retrait immédiat</p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 mt-6 relative z-10">
-                  <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-                    <p className="text-[10px] text-gray-400 mb-1">Aujourd'hui</p>
-                    <p className="text-sm font-bold text-green-400">+ 185 000</p>
-                    <p className="text-[10px] text-gray-500">FCFA</p>
-                  </div>
-                  <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-                    <p className="text-[10px] text-gray-400 mb-1">Frais Plateforme</p>
-                    <p className="text-sm font-bold text-red-400">- 12 500</p>
-                    <p className="text-[10px] text-gray-500">FCFA</p>
-                  </div>
-                </div>
-
-                <button className="w-full mt-6 bg-orange-500 hover:bg-orange-600 text-white font-bold py-3.5 rounded-xl text-sm flex items-center justify-center gap-2 transition-all relative z-10 shadow-sm shadow-orange-900">
-                  Faire un retrait <ArrowUpRight size={16} />
-                </button>
-                <p className="text-center text-[10px] text-gray-500 mt-3 relative z-10">
-                  Retrait temps réel • Mobile Money / Banque
-                </p>
-              </div>
-
-              {/* Mini Widget Chauffeurs */}
-              <div className="bg-white border border-gray-100 rounded-[24px] p-5 shadow-sm flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center text-green-600">
-                    <Clock size={18} />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-sm text-gray-900">Chauffeurs Connectés</h4>
-                    <p className="text-[11px] text-gray-500">Trajets temps réel</p>
-                  </div>
-                </div>
-                <div className="bg-green-500 text-white text-[10px] font-black px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-sm shadow-green-200">
-                  <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
-                  24 LIVE
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </div>
-      )}
+        <Link to="/validation" className="inline-flex items-center gap-1 text-xs font-bold text-orange-200 hover:text-white">Mon dossier <ArrowRight size={15}/></Link>
+      </div>
     </div>
-  )
+
+    {errors.length > 0 && <section role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+      <div className="flex items-start gap-3"><CircleAlert size={20} className="mt-0.5 shrink-0 text-amber-700"/><div>
+        <h2 className="font-black text-amber-900">Certaines données ne sont pas encore connectées au backend.</h2>
+        <p className="mt-1 text-xs text-amber-800">Le tableau de bord n'affiche pas de statistiques fictives.</p>
+        <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-amber-900">{errors.map(e => <li key={e}>{e}</li>)}</ul>
+      </div></div>
+    </section>}
+
+    <section aria-label="Indicateurs de la compagnie">
+      <SectionHead eyebrow="Pilotage" title="Votre activité en un coup d’œil" subtitle="Valeurs disponibles depuis les API existantes ; les autres restent à renseigner côté backend." />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <StatCard label="Gares" value={count(garesCount)} hint="Gares accessibles au compte connecté" icon={<MapPin size={21}/>} href="/gares" accent/>
+        <StatCard label="Lignes" value={count(lignesCount)} hint="Lignes enregistrées par la compagnie" icon={<Route size={21}/>} href="/lignes" />
+        <StatCard label="Bus" value={count(busCount)} hint="Véhicules enregistrés" icon={<BusFront size={21}/>} href="/vehicules" />
+        <StatCard label="Chauffeurs" value={count(chauffeursCount)} hint="Chauffeurs du registre interurbain" icon={<UsersRound size={21}/>} href="/chauffeurs" />
+        <StatCard label="Sièges vendus" value={count(null)} hint="Inventaire historique à rapprocher" icon={<TicketCheck size={21}/>} href="/sieges" accent/>
+        <StatCard label="Sièges libres" value={count(null)} hint="Disponibilité non confirmée" icon={<Armchair size={21}/>} href="/sieges" />
+      </div>
+    </section>
+
+    <div className="grid gap-6 xl:grid-cols-[1.65fr_1fr]">
+      <section className="min-w-0 rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm sm:p-6">
+        <SectionHead eyebrow="Exploitation" title="Prochains départs" subtitle="Bus réellement affectés à une date ; places non garanties." href="/horaires" action="Voir la planification" />
+        {departuresError ? <div role="status" className="rounded-2xl bg-amber-50 px-4 py-6 text-center text-sm text-amber-900">
+          Les départs réellement affectés ne peuvent pas être chargés : {departuresError}
+          <p className="mt-2 text-xs">Aucun départ n'est reconstitué à partir des seuls horaires publiés.</p>
+        </div>
+          : departures === null ? <p className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">Chargement des affectations réelles…</p>
+          : nextDepartures.length === 0 ? <p className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+            {departuresComplete
+              ? 'Aucun bus affecté à un départ à venir dans les 7 prochains jours.'
+              : 'Vérification incomplète : impossible de confirmer tous les départs des 7 prochains jours.'}
+          </p>
+          : <div className="space-y-3">{nextDepartures.map(dep => {
+            const capacity = number(dep.capacite_snapshot);
+            return <div key={dep.id} className="rounded-2xl border border-slate-100 p-4 transition hover:border-orange-200 hover:bg-orange-50/30">
+              <div className="flex flex-wrap justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="font-black text-slate-900">
+                    {gareNames[dep.gare_id] || 'Gare à préciser'}
+                    <ArrowRight size={15} className="mx-1 inline text-orange-500" />
+                    {destinationNames[dep.destination_id] || 'Destination à préciser'}
+                  </h3>
+                  <p className="mt-2 text-xs text-slate-500">
+                    <CalendarClock size={13} className="mr-1 inline" />
+                    {formatDeparture(dep.date_depart, dep.heure_depart)} · Bus {dep.numero_bus_snapshot || 'numéro non renseigné'}
+                  </p>
+                </div>
+                <p className="text-sm font-extrabold text-orange-700">{capacity === null ? 'Capacité non renseignée' : `${count(capacity)} sièges (capacité)`}</p>
+              </div>
+              <p className="mt-3 text-[10px] font-medium text-amber-700">Disponibilité et nombre de sièges vendus non confirmés : rapprochement des billets requis.</p>
+            </div>;
+          })}</div>}
+        {departures !== null && !departuresComplete && nextDepartures.length > 0 &&
+          <p className="mt-3 text-xs text-amber-700">Résultats partiels : certaines dates du catalogue n'ont pas pu être interrogées.</p>}
+      </section>
+
+      <section className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm sm:p-6">
+        <SectionHead eyebrow="Mise en service" title="Configurer votre compagnie" subtitle="Les étapes non renseignées doivent être complétées avant la mise en vente." />
+        <StatusLine label="Profil et téléphone" href="/compagnie" status={stateForProfile}/>
+        <StatusLine label="Gares de départ / arrivée" href="/gares" status={stepStatus(garesCount)}/>
+        <StatusLine label="Lignes entre les gares" href="/lignes" status={stepStatus(lignesCount)}/>
+        <StatusLine label="Horaires publiés" href="/horaires" status={stepStatus(horairesCount)}/>
+        <StatusLine label="Bus et capacités" href="/vehicules" status={stepStatus(busCount)}/>
+        <StatusLine label="Chauffeurs" href="/chauffeurs" status={stepStatus(chauffeursCount)}/>
+        <StatusLine label="Approbation ADMIN" href="/validation" status={!approval ? 'unknown' : approval === 'approved' ? 'ok' : 'missing'}/>
+        <p className="mt-3 rounded-xl bg-orange-50 px-3 py-3 text-[11px] leading-5 text-orange-800">Une compagnie en attente peut renseigner son dossier, mais ne doit pas être publiée ni vendre de billets avant l’approbation contrôlée côté serveur.</p>
+      </section>
+    </div>
+
+    <section>
+      <SectionHead eyebrow="Accès rapide" title="Gérer votre exploitation" />
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <ActionLink href="/gares" icon={<MapPin size={20}/>} title="Gares et agences" desc="Coordonnées, localisation, responsables"/>
+        <ActionLink href="/lignes" icon={<Route size={20}/>} title="Lignes de transport" desc="Gare de départ → gare d’arrivée"/>
+        <ActionLink href="/horaires" icon={<CalendarClock size={20}/>} title="Horaires et départs" desc="Dates, heures, rotations des bus"/>
+        <ActionLink href="/vehicules" icon={<BusFront size={20}/>} title="Bus et capacités" desc="Immatriculation et plan de sièges"/>
+        <ActionLink href="/chauffeurs" icon={<UsersRound size={20}/>} title="Chauffeurs" desc="Affectations et documents"/>
+        <ActionLink href="/reservations" icon={<ListChecks size={20}/>} title="Réservations" desc="Demandes, paiements, statuts"/>
+        <ActionLink href="/billets" icon={<TicketCheck size={20}/>} title="Billets et contrôle" desc="Vérification à l’embarquement"/>
+        <ActionLink href="/sieges" icon={<Armchair size={20}/>} title="Sièges vendus et libres" desc="Occupation réelle par bus et départ"/>
+      </div>
+    </section>
+
+    <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+      <section className="overflow-hidden rounded-[24px] bg-[#191C29] p-6 text-white shadow-lg">
+        <div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[.15em] text-orange-300">Finances</p><h2 className="mt-2 text-lg font-black">Portefeuille compagnie</h2></div><Wallet size={23} className="text-orange-400"/></div>
+        <p className="mt-5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Solde disponible selon le serveur</p>
+        <p className="mt-1 text-3xl font-black tabular-nums">{fcfa(null)}</p>
+        <div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/10 pt-5 text-xs">
+          <div className="rounded-xl bg-white/5 p-3"><p className="text-slate-400">Part compagnie</p><p className="mt-1 font-black">{fcfa(null)}</p></div>
+          <div className="rounded-xl bg-white/5 p-3"><p className="text-slate-400">Commission MESSAY</p><p className="mt-1 font-black">{fcfa(null)}</p></div>
+        </div>
+        <p className="mt-4 text-[11px] leading-5 text-slate-400">Les métriques financières ne sont pas encore exposées par les endpoints disponibles : les montants sont donc indisponibles, et non nuls. Un solde de portefeuille n’est pas un transfert bancaire exécuté.</p>
+        <div className="mt-5 flex flex-wrap gap-2"><Link to="/portefeuille" className="rounded-xl bg-orange-500 px-4 py-2.5 text-xs font-extrabold text-white transition hover:bg-orange-600">Voir le portefeuille <ArrowRight size={14} className="ml-1 inline"/></Link><Link to="/retraits" className="rounded-xl border border-white/20 px-4 py-2.5 text-xs font-bold hover:bg-white/10">Retraits</Link></div>
+      </section>
+
+      <section className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm sm:p-6">
+        <SectionHead eyebrow="Billetterie" title="Réservations récentes" subtitle="Raccordement API requis, sans passager fictif ni billet présumé payé." href="/reservations" />
+        <div className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+          La liste des réservations récentes n’est pas encore exposée par le service API du Dashboard.
+          <p className="mt-2 text-xs">Consultez « Réservations » pour les opérations disponibles. Aucun billet ni paiement n’est simulé ici.</p>
+        </div>
+      </section>
+    </div>
+
+    <p className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400"><FileCheck2 size={14}/> Les autorisations, l'approbation des compagnies, les disponibilités et les commissions doivent être vérifiées côté API. <BellRing size={14}/> Aucune notification ou vente n’est simulée sur cet écran.</p>
+  </div>;
 }

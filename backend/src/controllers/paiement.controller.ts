@@ -1,208 +1,221 @@
-import { Request, Response } from 'express';
+/**
+ * MESSAY — Contrôleur de paiements (lecture sécurisée, encaissement désactivé).
+ *
+ * Cette version conserve les méthodes publiques utilisées par paiement.routes.ts.
+ * Le statut enregistré en base NE constitue PAS une preuve de paiement fournisseur.
+ * Aucun billet, reçu ni paiement n'est créé par ce contrôleur.
+ *
+ * IMPORTANT : ces routes sont partagées. Ne pas activer la création avant d'avoir
+ * validé les flux tricycle et billetterie avec leurs réservations et tarifs serveur.
+ */
+import type { Request, Response } from 'express';
 import prisma from '../config/database';
-import { generatePDF } from '../utils/pdf';
 
-// 🛠️ On crée une interface pour que TypeScript ne bloque pas sur req.userId
-interface AuthenticatedRequest extends Request {
-  userId?: string;
-  user?: any;
+const UUID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+const LIMIT_PATTERN = /^(?:[1-9]|[1-9][0-9]|100)$/;
+
+/** Ne jamais prendre l'identité dans le body, les query params ou une URL. */
+function requireUser(req: Request, res: Response): string | null {
+  const userId = req.user?.id;
+  if (typeof userId !== 'string' || userId.trim().length === 0) {
+    res.status(401).json({
+      code: 'AUTHENTIFICATION_REQUISE',
+      error: 'Connexion requise.',
+    });
+    return null;
+  }
+  return userId;
 }
 
-/**
- * Contrôleur de gestion des paiements
- */
+function requirePaymentId(req: Request, res: Response): string | null {
+  const id = req.params.id;
+  if (typeof id !== 'string' || !UUID_PATTERN.test(id)) {
+    res.status(400).json({
+      code: 'PAIEMENT_ID_INVALIDE',
+      error: 'Identifiant de paiement invalide.',
+    });
+    return null;
+  }
+  return id;
+}
+
+/** Refuser aussi les tableaux/objets et les valeurs telles que 1.5 ou 0. */
+function readLimit(req: Request, res: Response): number | null {
+  const raw = req.query.limit;
+  if (raw === undefined) return 50;
+  if (typeof raw !== 'string' || !LIMIT_PATTERN.test(raw.trim())) {
+    res.status(400).json({
+      code: 'LIMITE_INVALIDE',
+      error: 'limit doit être un entier entre 1 et 100.',
+    });
+    return null;
+  }
+  return Number(raw.trim());
+}
+
+function setPrivateHeaders(res: Response): void {
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.vary('Authorization');
+}
+
+function serverError(error: unknown, operation: string, res: Response): void {
+  // Ne pas divulguer les détails Prisma, les jetons ou les données sensibles.
+  const code = error && typeof error === 'object' && 'code' in error
+    ? String((error as { code?: unknown }).code ?? 'UNKNOWN')
+    : 'UNKNOWN';
+  console.error(`[MESSAY/PAIEMENTS/${operation}]`, { code });
+  if (!res.headersSent) {
+    res.status(500).json({
+      code: 'PAIEMENT_ERREUR_SERVEUR',
+      error: 'Erreur interne pendant le traitement de la demande.',
+    });
+  }
+}
+
 export class PaiementController {
-  /**
-   * POST /api/paiements - Créer un paiement
-   */
-  async createPaiement(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { montant, moyen, courseId, ticketId, commandeBTPId } = req.body;
-      const userId = req.userId || req.user?.id || (req as any).userId;
+  /** POST /api/paiements — bloqué jusqu'au raccordement financier complet. */
+  async createPaiement(req: Request, res: Response): Promise<void> {
+    setPrivateHeaders(res);
+    if (!requireUser(req, res)) return;
 
-      // Générer un ID de transaction unique
-      const transactionId = `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-
-      // Créer le paiement
-      const paiement = await prisma.paiement.create({
-        data: {
-          userId,
-          montant,
-          moyen,
-          statut: 'EN_ATTENTE' as any, // 🛠️ CORRECTION : Bypass l'Enum strict
-          transactionId,
-          courseId,
-          ticketId,
-          commandeBTPId,
-        } as any, // 🛠️ CORRECTION : Bypass pour les champs comme courseId qui pourraient manquer
-        include: {
-          user: {
-            select: {
-              nom: true,
-              prenom: true,
-              email: true,
-              telephone: true,
-            },
-          },
-        } as any, // 🛠️ CORRECTION : Bypass de la vérification stricte
-      });
-
-      // Simuler le traitement du paiement
-      setTimeout(async () => {
-        await prisma.paiement.update({
-          where: { id: paiement.id },
-          data: { statut: 'COMPLETE' as any }, // 🛠️ CORRECTION : Bypass l'Enum
-        });
-      }, 2000);
-
-      res.status(201).json({
-        paiement,
-        message: 'Paiement en cours de traitement',
-      });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
+    // Ne pas créer de ligne EN_ATTENTE ici : l'origine du montant, le départ,
+    // le stock disponible et la session fournisseur ne sont pas encore reliés.
+    res.status(503).json({
+      code: 'PAIEMENT_NON_RACCORDE',
+      error: 'Paiement temporairement indisponible : la réservation et la vérification du prestataire ne sont pas encore raccordées.',
+    });
   }
 
-  /**
-   * GET /api/paiements - Obtenir l'historique des paiements
-   */
-  async getHistorique(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const userId = req.userId || req.user?.id || (req as any).userId;
+  /** GET /api/paiements — historique privé, lecture seule. */
+  async getHistorique(req: Request, res: Response): Promise<void> {
+    setPrivateHeaders(res);
+    const userId = requireUser(req, res);
+    if (!userId) return;
+    const limit = readLimit(req, res);
+    if (limit === null) return;
 
+    try {
       const paiements = await prisma.paiement.findMany({
         where: { userId },
-        include: {
-          course: {
-            select: {
-              departAdresse: true,
-              destinationAdresse: true,
-            },
-          },
-          ticket: {
-            select: {
-              compagnie: true,
-              depart: true,
-              destination: true,
-            },
-          },
-          commandeBTP: {
-            select: {
-              typeMateriau: true,
-              quantite: true,
-            },
-          },
-        } as any, // 🛠️ CORRECTION : Bypass des relations potentiellement manquantes (course, ticket...)
         orderBy: { createdAt: 'desc' },
+        take: limit,
+        // Préserver le contrat de réponse utilisé par le mobile existant.
+        // Le détail utilisateur n'est accessible qu'au propriétaire du paiement.
+        include: {
+          user: {
+            select: { nom: true, prenom: true, email: true, telephone: true },
+          },
+        },
       });
 
-      res.status(200).json({ paiements });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(200).json({
+        paiements,
+        source: 'BASE_DE_DONNEES',
+        verification_fournisseur: false,
+      });
+    } catch (error: unknown) {
+      serverError(error, 'HISTORIQUE', res);
     }
   }
 
-  /**
-   * GET /api/paiements/:id - Obtenir les détails d'un paiement
-   */
-  async getPaiementById(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const userId = req.userId || req.user?.id || (req as any).userId;
+  /** GET /api/paiements/:id — détail privé, pas de confirmation financière. */
+  async getPaiementById(req: Request, res: Response): Promise<void> {
+    setPrivateHeaders(res);
+    const userId = requireUser(req, res);
+    if (!userId) return;
+    const id = requirePaymentId(req, res);
+    if (!id) return;
 
+    try {
       const paiement = await prisma.paiement.findFirst({
         where: { id, userId },
         include: {
           user: {
-            select: {
-              nom: true,
-              prenom: true,
-              email: true,
-              telephone: true,
-            },
+            select: { nom: true, prenom: true, email: true, telephone: true },
           },
-          course: true,
-          ticket: true,
-          commandeBTP: true,
-        } as any, // 🛠️ CORRECTION : Bypass des relations
+        },
       });
 
       if (!paiement) {
-        res.status(404).json({ error: 'Paiement non trouvé' });
+        res.status(404).json({ code: 'PAIEMENT_INTROUVABLE', error: 'Paiement introuvable.' });
         return;
       }
 
-      res.status(200).json({ paiement });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(200).json({
+        paiement,
+        source: 'BASE_DE_DONNEES',
+        verification_fournisseur: false,
+      });
+    } catch (error: unknown) {
+      serverError(error, 'DETAIL', res);
     }
   }
 
-  /**
-   * GET /api/paiements/:id/recu - Télécharger le reçu PDF
-   */
-  async downloadRecu(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const userId = req.userId || req.user?.id || (req as any).userId;
+  /** GET /api/paiements/:id/recu — reçu désactivé sans preuve certifiée. */
+  async downloadRecu(req: Request, res: Response): Promise<void> {
+    setPrivateHeaders(res);
+    const userId = requireUser(req, res);
+    if (!userId) return;
+    const id = requirePaymentId(req, res);
+    if (!id) return;
 
+    try {
       const paiement = await prisma.paiement.findFirst({
-        where: { id, userId, statut: 'COMPLETE' as any }, // 🛠️ CORRECTION : Bypass Enum
-        include: {
-          user: {
-            select: {
-              nom: true,
-              prenom: true,
-              email: true,
-              telephone: true,
-            },
-          },
-          course: true,
-          ticket: true,
-          commandeBTP: true,
-        } as any, // 🛠️ CORRECTION : Bypass relations
+        where: { id, userId, statut: 'REUSSI' },
+        select: { id: true },
       });
 
       if (!paiement) {
-        res.status(404).json({ error: 'Paiement non trouvé ou non complété' });
+        res.status(404).json({
+          code: 'RECU_INTROUVABLE',
+          error: 'Aucun paiement réussi disponible pour ce reçu.',
+        });
         return;
       }
 
-      // Générer le PDF
-      const pdfBuffer = await generatePDF(paiement);
-
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename=recu-${paiement.transactionId}.pdf`);
-      res.send(pdfBuffer);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      // REUSSI peut provenir d'un historique antérieur : ne pas en déduire
+      // un encaissement effectif sans réconciliation avec le prestataire.
+      res.status(503).json({
+        code: 'RECU_NON_RACCORDE',
+        error: 'Reçu indisponible : la preuve de paiement du prestataire doit être vérifiée.',
+      });
+    } catch (error: unknown) {
+      serverError(error, 'RECU', res);
     }
   }
 
   /**
-   * POST /api/paiements/:id/verify - Vérifier le statut d'un paiement
+   * POST /api/paiements/:id/verify — simple lecture du statut interne.
+   * N'appelle PAS le prestataire et ne change JAMAIS le statut du paiement.
    */
-  async verifyPaiement(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const userId = req.userId || req.user?.id || (req as any).userId;
+  async verifyPaiement(req: Request, res: Response): Promise<void> {
+    setPrivateHeaders(res);
+    const userId = requireUser(req, res);
+    if (!userId) return;
+    const id = requirePaymentId(req, res);
+    if (!id) return;
 
+    try {
       const paiement = await prisma.paiement.findFirst({
         where: { id, userId },
+        select: { statut: true, transactionId: true },
       });
 
       if (!paiement) {
-        res.status(404).json({ error: 'Paiement non trouvé' });
+        res.status(404).json({ code: 'PAIEMENT_INTROUVABLE', error: 'Paiement introuvable.' });
         return;
       }
 
       res.status(200).json({
         statut: paiement.statut,
         transactionId: paiement.transactionId,
+        source: 'BASE_DE_DONNEES',
+        verification_fournisseur: false,
+        message: 'Statut interne uniquement ; ne constitue pas une preuve de paiement.',
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error: unknown) {
+      serverError(error, 'VERIFICATION', res);
     }
   }
 }

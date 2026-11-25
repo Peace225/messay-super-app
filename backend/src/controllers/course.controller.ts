@@ -118,6 +118,17 @@ export class CourseController {
           tricycle: tricycle
             ? { modele: tricycle.modele, immatriculation: tricycle.immatriculation }
             : null,
+          // Format normalisé pour l'application mobile passager.
+          rideId: course.id,
+          driver: {
+            id: course.conducteurId,
+            name: [course.conducteur?.user.prenom, course.conducteur?.user.nom].filter(Boolean).join(' '),
+            phone: course.conducteur?.user.telephone ?? null,
+            photo: course.conducteur?.user.photo ?? null,
+            rating: course.conducteur?.rating ?? null,
+            vehicle: tricycle?.modele ?? null,
+            plate: tricycle?.immatriculation ?? null,
+          },
           message: 'Votre conducteur arrive !',
         });
         io.emit('course_taken', { courseId: course.id });
@@ -130,6 +141,40 @@ export class CourseController {
       res.status(200).json({ message: 'Course acceptée avec succès', course });
     } catch (error: unknown) {
       sendError(res, error, 'accepterCourse');
+    }
+  };
+
+  /** Annule une course uniquement après confirmation transactionnelle en base. */
+  annulerCourse = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const userId = getUserId(req, res);
+    if (!userId) return;
+    const courseId = getCourseId(req, res);
+    if (!courseId) return;
+
+    try {
+      // Le service doit vérifier le propriétaire, le statut et libérer le conducteur
+      // dans une même transaction. Ne pas émettre d'événement avant sa confirmation.
+      const course = await courseService.annulerCourse(courseId, userId);
+      if (course.statut !== 'ANNULEE' || course.id !== courseId) {
+        throw new CourseError('Annulation non confirmée par la base de données', 409);
+      }
+
+      publishRealtime((io) => {
+        const event = { courseId: course.id, rideId: course.id, statut: 'ANNULEE' as const };
+        // Notifications ciblées : le client et le conducteur concernés.
+        io.to(`user-${course.userId}`).emit('course_cancelled', event);
+        if (course.conducteur?.userId) {
+          io.to(`user-${course.conducteur.userId}`).emit('course_cancelled', event);
+        }
+        io.to(`course-${course.id}`).emit('course_cancelled', event);
+        io.to(`course-${course.id}`).emit('status-changed', event);
+        // Les conducteurs en ligne doivent rafraîchir le radar : aucun détail privé.
+        io.emit('course_taken', { courseId: course.id });
+      });
+
+      res.status(200).json({ message: 'Course annulée', course });
+    } catch (error: unknown) {
+      sendError(res, error, 'annulerCourse');
     }
   };
 

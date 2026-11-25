@@ -1,4 +1,3 @@
-
 import type { Request, Response } from 'express';
 import prisma from '../config/database';
 
@@ -128,6 +127,9 @@ export async function getInterurbainPlaces(
           ) AS sieges_occupes
 
         FROM public.messay_bus_affectations a
+        INNER JOIN public.horaires h
+          ON h.id = a.horaire_id
+          AND h.destination_id = a.destination_id
 
         WHERE a.id = ${affectationId}::uuid
 
@@ -136,9 +138,13 @@ export async function getInterurbainPlaces(
             'PROGRAMMEE'
           )
 
-          AND a.date_depart >= (
-            now() AT TIME ZONE 'Africa/Abidjan'
-          )::date
+          AND (
+            a.date_depart > (now() AT TIME ZONE 'Africa/Abidjan')::date
+            OR (
+              a.date_depart = (now() AT TIME ZONE 'Africa/Abidjan')::date
+              AND h.heure_depart::time > (now() AT TIME ZONE 'Africa/Abidjan')::time
+            )
+          )
 
         LIMIT 1
       `;

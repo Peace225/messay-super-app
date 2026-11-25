@@ -94,7 +94,11 @@ router.delete('/:id', authenticate, notificationController.deleteNotification);
  *       200:
  *         description: Token enregistré
  */
-router.post('/register-token', authenticate, notificationController.registerPushToken);
+router.post('/register-token', authenticate, (_req, res) => {
+  res.status(410).json({
+    error: 'Ancienne route désactivée. Utiliser /api/push/devices.',
+  });
+});
 
 /**
  * @swagger

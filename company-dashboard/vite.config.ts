@@ -1,13 +1,25 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite' // <-- 1. Ajout de l'import
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   plugins: [
     react(),
-    tailwindcss(), // <-- 2. Ajout du plugin ici
+    tailwindcss(),
   ],
-  server: { port: 5173 },
+
+  server: {
+    port: 5173,
+    strictPort: true,
+
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      },
+    },
+  },
+
   optimizeDeps: {
     include: [
       'react',
@@ -15,7 +27,7 @@ export default defineConfig({
       'react-router-dom',
       'lucide-react',
       '@supabase/supabase-js',
-      'socket.io-client'
-    ]
-  }
-})
+      'socket.io-client',
+    ],
+  },
+});

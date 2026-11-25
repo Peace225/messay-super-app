@@ -144,9 +144,32 @@ export class NotificationController {
       });
 
       // Envoyer la push notification
-      await sendPushNotification(userId, titre, message);
+      let pushStatus = 'NON_TENTE';
 
-      res.status(201).json({ notification });
+      try {
+        const result = await sendPushNotification(
+          userId,
+          titre,
+          message
+        );
+
+        pushStatus = result.accepted > 0
+          ? 'ACCEPTE_PAR_EXPO'
+          : result.devices === 0
+            ? 'AUCUN_APPAREIL'
+            : 'REFUSE_PAR_EXPO';
+      } catch (error) {
+        pushStatus = 'ECHEC_EXPO';
+        console.error(
+          '[MESSAY/PUSH/ADMIN]',
+          error instanceof Error ? error.message : 'Erreur inconnue'
+        );
+      }
+
+      res.status(201).json({
+        notification,
+        push_status: pushStatus,
+      });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

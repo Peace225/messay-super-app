@@ -1,31 +1,16 @@
 import type { Request, Response } from 'express';
-import { z, ZodError } from 'zod';
+import { ZodError } from 'zod';
 import { AuthService, AuthError } from '../services/auth.service';
 import {
   registerSchema,
   loginSchema,
   verifyOTPSchema,
   refreshTokenSchema,
+  requestPassengerOTPSchema,
+  verifyPassengerOTPSchema,
 } from '../validators/auth.validator';
 
 const authService = new AuthService();
-
-// Le téléphone est normalisé et validé avant tout appel au service SMS
-// ou accès aux défis OTP PostgreSQL.
-const telephoneCI = z.string().trim().regex(
-  /^\+2250[157]\d{8}$/,
-  'Numéro mobile ivoirien invalide (format +225 suivi de 10 chiffres)',
-);
-
-const requestPassengerOTPSchema = z.object({
-  telephone: telephoneCI,
-}).strict();
-
-const verifyPassengerOTPSchema = z.object({
-  telephone: telephoneCI,
-  code: z.string().regex(/^\d{6}$/, 'Le code doit contenir 6 chiffres'),
-  nom: z.string().trim().min(2, 'Nom complet requis').max(100),
-}).strict();
 
 function sendAuthError(res: Response, error: unknown, action: string): void {
   if (error instanceof ZodError) {

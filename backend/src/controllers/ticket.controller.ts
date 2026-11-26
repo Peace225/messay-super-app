@@ -9,8 +9,9 @@ import {
 
 const UUID_PATTERN = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i;
 
-// Les champs affectationId et siegeNumero sont présents en PostgreSQL.
-// SELECT explicite pour ne lire que les colonnes nécessaires au passager.
+// Compatibilité production : les colonnes affectationId et siegeNumero peuvent
+// être absentes tant que la migration Ticket n'a pas été appliquée.
+// Ne pas les SELECT implicitement : l'ancien endpoint doit rester lisible.
 // Cette table historique n'est PAS public.tickets (nouvelle émission).
 const legacyTicketSelect = {
   id: true,
@@ -28,8 +29,6 @@ const legacyTicketSelect = {
   heureDepart: true,
   numeroBus: true,
   siege: true,
-  affectationId: true,
-  siegeNumero: true,
   classe: true,
   prix: true,
   methodePaiement: true,
@@ -52,12 +51,13 @@ const legacyTicketSelect = {
  */
 function withSeatAssignment<T extends {
   siege: string | null;
-  siegeNumero: number | null;
+  siegeNumero?: number | null;
   statut: string;
 }>(ticket: T): T & {
   statutAttributionSiege: 'ATTRIBUE' | 'HISTORIQUE_NON_RAPPROCHE' | 'EN_ATTENTE' | 'SANS_OBJET';
   siegeAffichage: string | null;
 } {
+  // La colonne siegeNumero n'est pas lue avant déploiement de la migration.
   const numero = ticket.siegeNumero;
   if (typeof numero === 'number' && Number.isInteger(numero) && numero > 0) {
     return { ...ticket, statutAttributionSiege: 'ATTRIBUE', siegeAffichage: String(numero) };

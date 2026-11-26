@@ -127,6 +127,18 @@ export async function getInterurbainPlaces(
           ) AS sieges_occupes
 
         FROM public.messay_bus_affectations a
+        INNER JOIN public.companies c
+          ON c.id = a.company_id
+          AND c.is_active IS TRUE
+          AND c.is_verified IS TRUE
+        INNER JOIN public.gares g
+          ON g.id = a.gare_id
+          AND g.company_id = a.company_id
+        INNER JOIN public.destinations d
+          ON d.id = a.destination_id
+          AND d.company_id = a.company_id
+          AND d.gare_depart_id = a.gare_id
+          AND d.publie IS TRUE
         INNER JOIN public.horaires h
           ON h.id = a.horaire_id
           AND h.destination_id = a.destination_id

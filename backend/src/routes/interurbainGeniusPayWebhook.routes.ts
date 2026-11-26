@@ -71,6 +71,31 @@ interurbainGeniusPayWebhookRouter.post(
           raison: codesAutorises.has(code) ? code : 'WEBHOOK_AUTRE',
         });
 
+        if (code === 'WEBHOOK_HEADERS_INVALID') {
+          const signature =
+            header(req, 'X-Webhook-Signature')?.trim() ?? '';
+
+          const timestamp =
+            header(req, 'X-Webhook-Timestamp') ?? '';
+
+          const event =
+            header(req, 'X-Webhook-Event')?.trim() ?? '';
+
+          const environment =
+            header(req, 'X-Webhook-Environment')?.trim() ?? '';
+
+          console.warn(
+            '[MESSAY/GENIUSPAY/INBOX] HEADER_DIAGNOSTIC',
+            {
+              signatureFormatOK: /^[a-fA-F0-9]{64}$/.test(signature),
+              timestampFormatOK: /^\d{10,11}$/.test(timestamp),
+              eventFormatOK: event.length > 0 && event.length <= 128,
+              environmentPresent: environment.length > 0,
+              environmentLive: environment === 'live',
+            },
+          );
+        }
+
         // Ne jamais révéler la cause exacte au client HTTP.
         res.status(401).json({ code: 'GENIUSPAY_SIGNATURE_INVALIDE' });
         return;

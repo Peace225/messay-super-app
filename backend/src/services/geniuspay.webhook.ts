@@ -80,7 +80,10 @@ export function verifyGeniusPayWebhook(
     !signature || !SIGNATURE_REGEX.test(signature) ||
     typeof timestamp !== 'string' || !HEADER_TIMESTAMP_REGEX.test(timestamp) ||
     !headerEvent || headerEvent.length > 128 ||
-    headerEnvironment !== expectedEnvironment
+    (
+      headers.environment !== undefined &&
+      headerEnvironment !== expectedEnvironment
+    )
   ) {
     throw new Error('WEBHOOK_HEADERS_INVALID');
   }

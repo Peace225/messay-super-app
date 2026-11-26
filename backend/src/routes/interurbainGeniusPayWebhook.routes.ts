@@ -54,7 +54,24 @@ interurbainGeniusPayWebhookRouter.post(
     } catch (error: unknown) {
       const code = error instanceof Error ? error.message : 'UNKNOWN';
       if (code.startsWith('WEBHOOK_')) {
-        // Signature/horodatage/environnement incorrect : jamais d'accusé succès.
+        // Diagnostic interne uniquement, sans secret ni données sensibles.
+        const codesAutorises = new Set([
+          'WEBHOOK_INVALID',
+          'WEBHOOK_ENVIRONMENT_INVALID',
+          'WEBHOOK_HEADERS_INVALID',
+          'WEBHOOK_EXPIRED',
+          'WEBHOOK_SIGNATURE_INVALID',
+          'WEBHOOK_JSON_INVALID',
+          'WEBHOOK_PAYLOAD_INVALID',
+          'WEBHOOK_EVENT_INVALID',
+          'WEBHOOK_EVENT_TIMESTAMP_INVALID',
+        ]);
+
+        console.warn('[MESSAY/GENIUSPAY/INBOX] WEBHOOK_REJETE', {
+          raison: codesAutorises.has(code) ? code : 'WEBHOOK_AUTRE',
+        });
+
+        // Ne jamais révéler la cause exacte au client HTTP.
         res.status(401).json({ code: 'GENIUSPAY_SIGNATURE_INVALIDE' });
         return;
       }

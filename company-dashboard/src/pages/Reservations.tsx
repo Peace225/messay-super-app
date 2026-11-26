@@ -1,649 +1,479 @@
-import { useEffect, useState, useMemo } from 'react'
-import { QRCodeSVG } from 'qrcode.react'
-import { api } from '../services/api'
-import { connectSocket, onNewReservation, onReservationUpdate, emitReservationStatus } from '../services/socket'
-import { 
-  Search, 
-  MapPin, 
-  QrCode, 
-  CheckCircle, 
-  Clock, 
-  Bus, 
-  User, 
-  Phone, 
-  CreditCard, 
-  PackageCheck, 
-  AlertCircle,
-  X,
-  ArrowRight,
-  ShieldCheck,
-  FileText,
-  Receipt
-} from 'lucide-react'
+/**
+ * MESSAY PRO — Registre de billetterie vérifié côté serveur.
+ *
+ * Source : /api/company-dashboard/transactions (direction) ou
+ *          /api/company-dashboard/gares/:gareId/transactions (autres rôles).
+ * Les endpoints existants exposent des TRANSACTIONS, pas des réservations
+ * complètes : aucun passager, QR, siège, reçu ou statut d'embarquement n'est
+ * inventé. Les opérations d'embarquement attendront une API métier sécurisée.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  ArrowRight, Banknote, Building2, CalendarDays, ChevronRight,
+  CircleAlert, Clock3, FileCheck2, ListChecks, Loader2, MapPin,
+  Receipt, RefreshCw, Search, ShieldCheck, TicketCheck, Undo2, Wallet,
+} from 'lucide-react';
+import {
+  garesDirectionApi,
+  garesHierarchyApi,
+  garesManagementApi,
+  type DirectionTransaction,
+  type Gare,
+  type GareAccessContext,
+  type GareTransaction,
+  type GareTransactionPage,
+} from '../services/garesManagementApi';
 
-type TimelineEvent = {
-  status: 'CREE' | 'PAYE' | 'VALIDE' | 'EMBARQUE' | 'EN_COURS' | 'ARRIVE'
-  at: string
-  actor: string
-  note?: string
-  location?: string
+type TransactionVue = GareTransaction & {
+  gare_id: string;
+  gare_nom: string;
+};
+
+type TransactionPage = GareTransactionPage | {
+  transactions: DirectionTransaction[];
+  next_cursor: string | null;
+};
+
+const inputClass = 'h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100';
+
+function localDate(value: Date): string {
+  const yyyy = value.getFullYear();
+  const mm = String(value.getMonth() + 1).padStart(2, '0');
+  const dd = String(value.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
-type Reservation = {
-  id: string
-  code: string
-  passenger: { name: string; phone: string; email?: string; photo?: string }
-  gare_depart: { id: string; nom: string; ville: string }
-  gare_arrivee: { id: string; nom: string; ville: string }
-  destination: string
-  heure: string
-  date: string
-  prix: number
-  seat: string
-  payment_method: 'WAVE' | 'OM' | 'MOMO' | 'CASH'
-  payment_status: 'PAYE' | 'EN_ATTENTE' | 'ECHOUE'
-  status: 'PAYE' | 'VALIDE' | 'EMBARQUE' | 'EN_COURS' | 'ARRIVE'
-  company: string // Compagnie de transport / Partenaire
-  chauffeur?: { name: string; bus: string }
-  timeline: TimelineEvent[]
-  qr: string
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Une erreur est survenue.';
 }
 
-const mockReservations: Reservation[] = [
-  {
-    id: 'r1',
-    code: 'MES-ABJ-AKP-001',
-    date: '2026-07-21',
-    heure: '07:00',
-    passenger: { name: 'Kouadio Mensah', phone: '0701234567', email: 'kouadio@gmail.com' },
-    gare_depart: { id: 'g1', nom: 'Gare Yopougon', ville: 'Abidjan' },
-    gare_arrivee: { id: 'g3', nom: 'Gare Centre Akoupé', ville: 'Akoupé' },
-    destination: 'Akoupé',
-    prix: 5000,
-    seat: 'A12',
-    payment_method: 'WAVE',
-    payment_status: 'PAYE',
-    status: 'PAYE',
-    company: 'Messay Express Abidjan',
-    chauffeur: { name: 'Koffi S.', bus: 'AB-123-CI' },
-    qr: 'MES-ABJ-AKP-001-QR',
-    timeline: [
-      { status: 'CREE', at: '2026-07-20T10:00:00', actor: 'App Mobile', note: 'Reçu émis suite achat Abidjan → Akoupé', location: 'Abidjan' },
-      { status: 'PAYE', at: '2026-07-20T10:02:15', actor: 'Wave CI', note: 'Paiement 5000F validé #WAVE-9981', location: 'Paiement' },
-      { status: 'VALIDE', at: '2026-07-20T10:03:00', actor: 'Système', note: 'Siège A12 attribué automatiquement', location: 'Gare Yopougon' },
-    ]
-  },
-  {
-    id: 'r2',
-    code: 'MES-ABJ-DAL-042',
-    date: '2026-07-21',
-    heure: '08:00',
-    passenger: { name: 'Bamba Aminata', phone: '0502345678' },
-    gare_depart: { id: 'g2', nom: 'Gare Adjamé', ville: 'Abidjan' },
-    gare_arrivee: { id: 'g4', nom: 'Gare Daloa', ville: 'Daloa' },
-    destination: 'Daloa',
-    prix: 8000,
-    seat: 'B05',
-    payment_method: 'OM',
-    payment_status: 'PAYE',
-    status: 'EMBARQUE',
-    company: 'Messay Transport Ouest',
-    chauffeur: { name: 'Diabaté M.', bus: 'AB-456-CI' },
-    qr: 'MES-ABJ-DAL-042-QR',
-    timeline: [
-      { status: 'CREE', at: '2026-07-20T09:00:00', actor: 'App Mobile', note: 'Reçu de billet mobile généré', location: 'Abidjan' },
-      { status: 'PAYE', at: '2026-07-20T09:01:30', actor: 'Orange Money', note: '8000F #OM-4421' },
-      { status: 'VALIDE', at: '2026-07-20T09:02:00', actor: 'Chef Gare Adjamé', note: 'Validé par chef gare Yao' },
-      { status: 'EMBARQUE', at: '2026-07-21T07:45:00', actor: 'Chef Gare Adjamé', note: 'QR scanné, passager à bord', location: 'Gare Adjamé' },
-    ]
-  },
-  {
-    id: 'r3',
-    code: 'MES-ABJ-AKP-009',
-    date: '2026-07-21',
-    heure: '14:00',
-    passenger: { name: 'Yao Kouakou', phone: '0709988776' },
-    gare_depart: { id: 'g1', nom: 'Gare Yopougon', ville: 'Abidjan' },
-    gare_arrivee: { id: 'g3', nom: 'Gare Centre Akoupé', ville: 'Akoupé' },
-    destination: 'Akoupé',
-    prix: 5000,
-    seat: 'A13',
-    payment_method: 'WAVE',
-    payment_status: 'PAYE',
-    status: 'EN_COURS',
-    company: 'Messay Express Abidjan',
-    chauffeur: { name: 'Koffi S.', bus: 'AB-123-CI' },
-    qr: 'MES-ABJ-AKP-009-QR',
-    timeline: [
-      { status: 'CREE', at: '2026-07-20T18:00:00', actor: 'App Mobile', note: 'Réception reçu application' },
-      { status: 'PAYE', at: '2026-07-20T18:01:00', actor: 'Wave' },
-      { status: 'VALIDE', at: '2026-07-20T18:02:00', actor: 'Système' },
-      { status: 'EMBARQUE', at: '2026-07-21T06:50:00', actor: 'Chef Gare Yopougon', location: 'Gare Yopougon' },
-      { status: 'EN_COURS', at: '2026-07-21T07:05:00', actor: 'Chauffeur Koffi S.', note: 'Départ Yopougon → Akoupé, 35 passagers', location: 'Sur route' },
-    ]
-  },
-]
-
-const statusConfig: Record<string, { label: string; bg: string; text: string; dot: string }> = {
-  PAYE: { label: 'Payé', bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700', dot: 'bg-amber-400' },
-  VALIDE: { label: 'Validé', bg: 'bg-blue-50 border-blue-200', text: 'text-blue-700', dot: 'bg-blue-500' },
-  EMBARQUE: { label: 'Embarqué', bg: 'bg-purple-50 border-purple-200', text: 'text-purple-700', dot: 'bg-purple-500' },
-  EN_COURS: { label: 'En Route', bg: 'bg-orange-50 border-orange-200', text: 'text-orange-700', dot: 'bg-orange-500' },
-  ARRIVE: { label: 'Arrivé', bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700', dot: 'bg-emerald-500' },
+function money(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${Math.round(value).toLocaleString('fr-FR')} FCFA`
+    : '—';
 }
 
-const timelineIcon: Record<string, any> = {
-  CREE: Receipt,
-  PAYE: CreditCard,
-  VALIDE: CheckCircle,
-  EMBARQUE: QrCode,
-  EN_COURS: Bus,
-  ARRIVE: PackageCheck,
+function formattedDate(value: string): string {
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime())
+    ? parsed.toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
+    : 'Date indisponible';
+}
+
+function statusLabel(status: string): string {
+  const value = status.toUpperCase();
+  if (value === 'PAYE') return 'Vente confirmée';
+  if (value === 'REMBOURSE') return 'Remboursement';
+  return status || 'Statut inconnu';
+}
+
+function decorateTransactions(rows: GareTransaction[], station: Gare | null): TransactionVue[] {
+  return rows.map((row) => {
+    // Ces deux champs existent déjà dans le JSON réel du backend, mais
+    // GareTransaction ne les déclare pas forcément dans ses types actuels.
+    const extended = row as GareTransaction & Partial<Pick<DirectionTransaction, 'gare_id' | 'gare_nom'>>;
+    return {
+      ...row,
+      gare_id: extended.gare_id || station?.id || '',
+      gare_nom: extended.gare_nom || station?.nom || 'Gare non renseignée',
+    };
+  });
+}
+
+function CsvExport({ rows }: { rows: TransactionVue[] }) {
+  const exportCsv = () => {
+    const safeCell = (value: string | number | null | undefined): string => {
+      const text = String(value ?? '');
+      const protectedText = /^\s*[=+@\-]/.test(text) ? `'${text}` : text;
+      return `"${protectedText.replace(/"/g, '""')}"`;
+    };
+    const values: Array<Array<string | number | null | undefined>> = [
+      ['Date', 'Référence billet', 'Gare', 'Agent', 'Canal', 'Mode de paiement', 'Statut', 'Montant FCFA', 'Commission MESSAY FCFA', 'Part compagnie FCFA'],
+      ...rows.map((t) => [
+        t.occurred_at, t.reference_billet, t.gare_nom, t.agent_nom,
+        t.canal, t.mode_paiement, t.statut, t.montant_fcfa,
+        t.commission_messay_fcfa, t.part_compagnie_fcfa,
+      ]),
+    ];
+    const csv = '\uFEFF' + values.map((row) => row.map(safeCell).join(';')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `messay-transactions-${localDate(new Date())}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  return (
+    <button
+      type="button"
+      disabled={rows.length === 0}
+      onClick={exportCsv}
+      className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <FileCheck2 size={15} /> Exporter les lignes affichées
+    </button>
+  );
 }
 
 export default function Reservations() {
-  const [reservations, setReservations] = useState<Reservation[]>(mockReservations)
-  const [gares, setGares] = useState<any[]>([])
-  const [filterDepart, setFilterDepart] = useState('all')
-  const [filterArrivee, setFilterArrivee] = useState('all')
-  const [filterStatus, setFilterStatus] = useState('all')
-  const [search, setSearch] = useState('')
-  const [selected, setSelected] = useState<Reservation | null>(mockReservations[0])
-  const [showQR, setShowQR] = useState(false)
-  const [showReceiptModal, setShowReceiptModal] = useState(false)
+  const [access, setAccess] = useState<GareAccessContext | null>(null);
+  const [gares, setGares] = useState<Gare[]>([]);
+  const [gareId, setGareId] = useState('all');
+  const [loadingAccess, setLoadingAccess] = useState(true);
+  const [accessError, setAccessError] = useState('');
+
+  const [from, setFrom] = useState(() => localDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
+  const [to, setTo] = useState(() => localDate(new Date()));
+  const [transactions, setTransactions] = useState<TransactionVue[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const requestSeq = useRef(0);
 
   useEffect(() => {
-    const companyId = localStorage.getItem('companyId') || '1'
-    
-    api.getGares(companyId).then(setGares).catch(() => setGares([]))
-    connectSocket(companyId)
+    let active = true;
+    (async () => {
+      setLoadingAccess(true);
+      setAccessError('');
+      try {
+        const [rights, stations] = await Promise.all([
+          garesHierarchyApi.access(),
+          garesManagementApi.list(),
+        ]);
+        if (!rights?.company_id || !Array.isArray(rights.gare_ids)) {
+          throw new Error('Droits compagnie incomplets : reconnectez-vous.');
+        }
+        const scoped = stations.filter((g) =>
+          g.company_id === rights.company_id &&
+          (rights.role === 'DIRECTION' || rights.gare_ids.includes(g.id)),
+        );
+        if (!active) return;
+        setAccess(rights);
+        setGares(scoped);
+        setGareId(rights.role === 'DIRECTION' ? 'all' : (scoped[0]?.id || 'none'));
+      } catch (caught) {
+        if (active) {
+          setAccess(null);
+          setGares([]);
+          setTransactions([]);
+          setAccessError(getErrorMessage(caught));
+        }
+      } finally {
+        if (active) setLoadingAccess(false);
+      }
+    })();
+    return () => { active = false; requestSeq.current += 1; };
+  }, []);
 
-    const off1 = onNewReservation((newRes: Reservation) => {
-      setReservations(prev => [newRes, ...prev])
-      new Audio('https://cdn.pixabay.com/audio/2022/03/24/audio_4c8c28f6e8.mp3').play().catch(() => {})
-    })
-
-    const off2 = onReservationUpdate((updated: Reservation) => {
-      setReservations(prev => prev.map(p => p.id === updated.id ? updated : p))
-      setSelected(prev => (prev?.id === updated.id ? updated : prev))
-    })
-
-    return () => {
-      off1()
-      off2()
+  const loadTransactions = useCallback(async (append = false, cursor: string | null = null) => {
+    if (!access) return;
+    const request = ++requestSeq.current;
+    if (append) setLoadingMore(true);
+    else {
+      setLoading(true);
+      setTransactions([]);
+      setSelectedId(null);
+      setNextCursor(null);
     }
-  }, [])
+    setError('');
 
-  const garesDepartList = useMemo(() => {
-    const set = new Set<string>()
-    reservations.forEach(r => set.add(r.gare_depart.nom))
-    gares.forEach(g => set.add(g.nom))
-    return Array.from(set)
-  }, [reservations, gares])
+    try {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+        throw new Error('Veuillez choisir une période valide.');
+      }
+      if (gareId === 'none' || (gareId === 'all' && access.role !== 'DIRECTION')) {
+        throw new Error('Aucune gare autorisée n’est affectée à votre compte.');
+      }
+      const chosenStation = gares.find((g) => g.id === gareId) || null;
+      if (gareId !== 'all' && !chosenStation) {
+        throw new Error('Cette gare n’est pas dans le périmètre de votre compte.');
+      }
 
-  const garesArriveeList = useMemo(() => {
-    const set = new Set<string>()
-    reservations.forEach(r => set.add(r.gare_arrivee.nom))
-    return Array.from(set)
-  }, [reservations])
+      const response: TransactionPage = gareId === 'all'
+        ? await garesDirectionApi.allTransactions(from, to, append ? cursor : null)
+        : await garesHierarchyApi.transactions(gareId, from, to, append ? cursor : null);
+
+      if (!response || !Array.isArray(response.transactions)) {
+        throw new Error('Le serveur a retourné une liste de transactions invalide.');
+      }
+      if (request !== requestSeq.current) return;
+
+      const incoming = decorateTransactions(response.transactions, chosenStation);
+      setTransactions((previous) => {
+        if (!append) return incoming;
+        const ids = new Set(previous.map((row) => row.id));
+        return [...previous, ...incoming.filter((row) => !ids.has(row.id))];
+      });
+      setNextCursor(response.next_cursor || null);
+      if (!append) setSelectedId(incoming[0]?.id || null);
+    } catch (caught) {
+      if (request === requestSeq.current) setError(getErrorMessage(caught));
+    } finally {
+      if (request === requestSeq.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    }
+  }, [access, from, to, gareId, gares]);
+
+  useEffect(() => {
+    if (access) void loadTransactions();
+    return () => { requestSeq.current += 1; };
+  }, [access, loadTransactions]);
 
   const filtered = useMemo(() => {
-    return reservations.filter(r => {
-      if (filterDepart !== 'all' && r.gare_depart.nom !== filterDepart) return false
-      if (filterArrivee !== 'all' && r.gare_arrivee.nom !== filterArrivee) return false
-      if (filterStatus !== 'all' && r.status !== filterStatus) return false
-      if (
-        search &&
-        !`${r.passenger.name} ${r.code} ${r.passenger.phone} ${r.company}`
-          .toLowerCase()
-          .includes(search.toLowerCase())
-      ) {
-        return false
-      }
-      return true
-    })
-  }, [reservations, filterDepart, filterArrivee, filterStatus, search])
+    const term = search.trim().toLocaleLowerCase('fr');
+    return transactions.filter((t) => {
+      if (statusFilter !== 'all' && t.statut.toUpperCase() !== statusFilter) return false;
+      if (!term) return true;
+      return [t.reference_billet, t.agent_nom, t.gare_nom, t.canal, t.mode_paiement, t.statut]
+        .some((item) => String(item || '').toLocaleLowerCase('fr').includes(term));
+    });
+  }, [transactions, search, statusFilter]);
 
-  const updateStatus = (
-    id: string,
-    newStatus: Reservation['status'],
-    actor: string,
-    note?: string
-  ) => {
-    setReservations(prev =>
-      prev.map(r => {
-        if (r.id !== id) return r
-
-        const event: TimelineEvent = {
-          status: newStatus,
-          at: new Date().toISOString(),
-          actor,
-          note,
-          location: r.gare_depart.nom
-        }
-
-        const updated: Reservation = {
-          ...r,
-          status: newStatus,
-          timeline: [...r.timeline, event]
-        }
-
-        emitReservationStatus(updated)
-
-        if (selected?.id === id) {
-          setSelected(updated)
-        }
-
-        return updated
-      })
-    )
-  }
-
-  const stats = {
-    total: reservations.length,
-    paye: reservations.filter(r => r.status === 'PAYE').length,
-    embarque: reservations.filter(r => r.status === 'EMBARQUE').length,
-    enCours: reservations.filter(r => r.status === 'EN_COURS').length,
-  }
+  const selected = useMemo(
+    () => transactions.find((row) => row.id === selectedId) || null,
+    [transactions, selectedId],
+  );
+  const sales = transactions.filter((t) => t.statut.toUpperCase() === 'PAYE');
+  const refunds = transactions.filter((t) => t.statut.toUpperCase() === 'REMBOURSE');
+  const netAmount = transactions.reduce((total, t) => total + (Number.isFinite(t.montant_fcfa) ? t.montant_fcfa : 0), 0);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      
-      {/* En-tête de la page */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-[24px] border border-gray-100 shadow-sm">
-        <div>
-          <h2 className="text-2xl font-black text-gray-900">Billets & Traçabilité des Passagers</h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Réception des reçus d'achat de billets mobiles, suivi des compagnies et contrôle des flux en direct
+    <div className="mx-auto max-w-7xl space-y-6 pb-12">
+      <header className="rounded-[24px] border border-slate-100 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-wider text-orange-600">
+              <TicketCheck size={15} /> MESSAY PRO · Billetterie interurbaine
+            </div>
+            <h1 className="text-2xl font-black text-slate-900">Billets et transactions</h1>
+            <p className="mt-2 max-w-2xl text-sm text-slate-500">
+              Registre des ventes et remboursements réellement enregistrés par la compagnie.
+              Les transactions mobiles et au guichet sont distinguées par le serveur.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadTransactions()}
+            disabled={!access || loading || loadingMore}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-orange-500 px-4 text-xs font-extrabold text-white transition hover:bg-orange-600 disabled:opacity-50"
+          >
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Actualiser
+          </button>
+        </div>
+        {access && (
+          <p className="mt-4 flex items-center gap-2 text-xs font-bold text-slate-500">
+            <ShieldCheck size={15} className="text-emerald-600" />
+            Accès vérifié : {access.display_name || access.role} · {access.role.replace(/_/g, ' ')}
           </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            Live Socket.io actif
-          </span>
-        </div>
-      </div>
+        )}
+      </header>
 
-      {/* Cartes de Statistiques Rapides */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-[20px] p-5 border border-gray-100 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total reçus du jour</p>
-            <p className="text-2xl font-black text-gray-900 mt-1">{stats.total}</p>
-          </div>
-          <div className="w-12 h-12 rounded-2xl bg-gray-50 text-gray-700 flex items-center justify-center font-bold">
-            <Receipt size={22} />
-          </div>
-        </div>
-
-        <div className="bg-white rounded-[20px] p-5 border border-gray-100 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Billets Payés</p>
-            <p className="text-2xl font-black text-amber-600 mt-1">{stats.paye}</p>
-          </div>
-          <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
-            <Clock size={22} />
-          </div>
-        </div>
-
-        <div className="bg-white rounded-[20px] p-5 border border-gray-100 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Embarqués</p>
-            <p className="text-2xl font-black text-purple-600 mt-1">{stats.embarque}</p>
-          </div>
-          <div className="w-12 h-12 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center">
-            <QrCode size={22} />
-          </div>
-        </div>
-
-        <div className="bg-white rounded-[20px] p-5 border border-gray-100 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">En route</p>
-            <p className="text-2xl font-black text-orange-500 mt-1">{stats.enCours}</p>
-          </div>
-          <div className="w-12 h-12 rounded-2xl bg-orange-50 text-orange-500 flex items-center justify-center">
-            <Bus size={22} />
-          </div>
-        </div>
-      </div>
-
-      {/* Barre de Filtres Avancée */}
-      <div className="bg-white rounded-[24px] border border-gray-100 p-4 shadow-sm flex gap-3 flex-wrap items-center">
-        <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3.5 h-12 flex-1 min-w-[260px] border border-gray-100 focus-within:border-orange-500 transition-colors">
-          <Search size={18} className="text-gray-400 shrink-0" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Rechercher par nom, téléphone, code billet, compagnie..."
-            className="bg-transparent outline-none text-xs font-medium text-gray-900 w-full placeholder:text-gray-400"
-          />
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <select
-            value={filterDepart}
-            onChange={e => setFilterDepart(e.target.value)}
-            className="h-12 rounded-xl border border-gray-100 px-4 bg-gray-50 text-xs font-bold text-gray-700 outline-none hover:bg-gray-100 transition-colors cursor-pointer"
-          >
-            <option value="all">📍 Toutes gares départ</option>
-            {garesDepartList.map(nom => (
-              <option key={nom} value={nom}>{nom}</option>
-            ))}
-          </select>
-
-          <select
-            value={filterArrivee}
-            onChange={e => setFilterArrivee(e.target.value)}
-            className="h-12 rounded-xl border border-gray-100 px-4 bg-gray-50 text-xs font-bold text-gray-700 outline-none hover:bg-gray-100 transition-colors cursor-pointer"
-          >
-            <option value="all">🏁 Toutes arrivées</option>
-            {garesArriveeList.map(nom => (
-              <option key={nom} value={nom}>{nom}</option>
-            ))}
-          </select>
-
-          <select
-            value={filterStatus}
-            onChange={e => setFilterStatus(e.target.value)}
-            className="h-12 rounded-xl border border-gray-100 px-4 bg-gray-50 text-xs font-bold text-gray-700 outline-none hover:bg-gray-100 transition-colors cursor-pointer"
-          >
-            <option value="all">⚡ Tous les statuts</option>
-            <option value="PAYE">Payé</option>
-            <option value="VALIDE">Validé</option>
-            <option value="EMBARQUE">Embarqué</option>
-            <option value="EN_COURS">En route</option>
-            <option value="ARRIVE">Arrivé</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Grille principale : Liste des reçus/billets et panneau de détail */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        {/* Liste des Billets / Reçus (7 colonnes) */}
-        <div className="lg:col-span-7 bg-white rounded-[24px] border border-gray-100 overflow-hidden shadow-sm">
-          <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-            <h4 className="font-black text-gray-900 text-sm">Reçus & Billets App Mobile ({filtered.length})</h4>
-            <span className="text-[11px] font-bold text-gray-400">Cliquez pour voir la traçabilité</span>
-          </div>
-
-          <div className="divide-y divide-gray-100 max-h-[650px] overflow-auto">
-            {filtered.length === 0 ? (
-              <div className="p-12 text-center text-gray-400 text-sm">
-                Aucun reçu ou billet ne correspond à vos critères de recherche.
-              </div>
-            ) : (
-              filtered.map(r => {
-                const sc = statusConfig[r.status] || { label: r.status, bg: 'bg-gray-100', text: 'text-gray-700', dot: 'bg-gray-400' }
-                const isSelected = selected?.id === r.id
-
-                return (
-                  <div
-                    key={r.id}
-                    onClick={() => setSelected(r)}
-                    className={`p-4 hover:bg-orange-50/30 cursor-pointer flex gap-4 transition-all relative ${
-                      isSelected ? 'bg-orange-50/60 border-l-4 border-orange-500' : ''
-                    }`}
-                  >
-                    <div className="w-11 h-11 rounded-2xl bg-orange-100 text-orange-700 flex items-center justify-center font-black text-sm shrink-0 shadow-sm">
-                      {r.passenger.name.charAt(0)}
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-start gap-2 mb-1">
-                        <div>
-                          <p className="font-black text-sm text-gray-900 truncate">
-                            {r.passenger.name}
-                          </p>
-                          <p className="text-[11px] font-bold text-orange-600 tracking-tight">
-                            {r.code} • <span className="text-gray-500 font-medium">{r.company}</span>
-                          </p>
-                        </div>
-                        <span className={`text-[10px] font-bold px-3 py-1 rounded-full border flex items-center gap-1.5 shrink-0 ${sc.bg} ${sc.text}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`}></span>
-                          {sc.label}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 mt-2">
-                        <span className="truncate">{r.gare_depart.nom}</span>
-                        <ArrowRight size={12} className="text-gray-400 shrink-0" />
-                        <span className="truncate">{r.gare_arrivee.nom}</span>
-                        <span className="ml-auto text-[11px] font-normal text-gray-400">{r.date} à {r.heure}</span>
-                      </div>
-
-                      <div className="flex items-center justify-between text-[11px] text-gray-400 mt-2 pt-2 border-t border-gray-50">
-                        <span className="flex items-center gap-1 font-medium text-gray-500">
-                          <Phone size={11} /> {r.passenger.phone}
-                        </span>
-                        <span className="flex items-center gap-1 font-bold text-gray-900">
-                          {r.prix.toLocaleString()} F <span className="font-normal text-gray-400">({r.payment_method})</span>
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </div>
-
-        {/* Panneau Détails & Traçabilité complète (5 colonnes) */}
-        <div className="lg:col-span-5 bg-white rounded-[24px] border border-gray-100 shadow-sm overflow-hidden sticky top-6">
-          {!selected ? (
-            <div className="p-12 text-center text-gray-400 text-sm">
-              Sélectionnez un billet pour afficher les détails du reçu mobile et la traçabilité complète.
-            </div>
-          ) : (
-            <div>
-              {/* En-tête Billet Carte */}
-              <div className="p-6 bg-gradient-to-br from-[#1a1a1c] to-[#2c2c2e] text-white relative overflow-hidden">
-                <div className="absolute -right-6 -bottom-6 w-32 h-32 bg-orange-500/10 rounded-full blur-2xl"></div>
-                
-                <div className="flex justify-between items-start relative z-10">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400 bg-orange-500/10 px-2.5 py-1 rounded-md border border-orange-500/20">
-                      Reçu de billet mobile
-                    </span>
-                    <h3 className="font-black text-xl tracking-wide mt-2">{selected.code}</h3>
-                    <p className="text-xs text-orange-300 font-semibold mt-0.5">Compagnie : {selected.company}</p>
-                  </div>
-                  <button
-                    onClick={() => setShowQR(true)}
-                    className="w-11 h-11 bg-white/10 hover:bg-orange-500 transition-colors rounded-2xl flex items-center justify-center text-white shadow-sm group"
-                    title="Afficher le QR Code"
-                  >
-                    <QrCode size={20} className="group-hover:scale-110 transition-transform" />
-                  </button>
-                </div>
-
-                <div className="mt-6 grid grid-cols-2 gap-3 relative z-10">
-                  <div className="bg-white/5 rounded-2xl p-3 border border-white/10">
-                    <p className="text-[10px] text-gray-400 uppercase">Départ</p>
-                    <p className="text-xs font-bold truncate mt-0.5">{selected.gare_depart.nom}</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">{selected.heure} • {selected.date}</p>
-                  </div>
-                  <div className="bg-white/5 rounded-2xl p-3 border border-white/10">
-                    <p className="text-[10px] text-gray-400 uppercase">Arrivée</p>
-                    <p className="text-xs font-bold truncate mt-0.5">{selected.gare_arrivee.nom}</p>
-                    <p className="text-[10px] text-orange-400 font-bold mt-0.5">Siège : {selected.seat}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Info Passager & Paiement */}
-              <div className="p-6 border-b border-gray-100">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="font-black text-xs uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
-                    <User size={14} className="text-orange-500" /> Passager & Paiement mobile
-                  </p>
-                  <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">
-                    Reçu validé ({selected.payment_status})
-                  </span>
-                </div>
-
-                <div className="bg-gray-50/50 rounded-2xl p-4 border border-gray-100 space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-500 font-medium">Nom complet</span>
-                    <span className="text-xs font-bold text-gray-900">{selected.passenger.name}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-500 font-medium">Téléphone</span>
-                    <span className="text-xs font-bold text-gray-900">{selected.passenger.phone}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-500 font-medium">Montant réglé</span>
-                    <span className="text-xs font-black text-orange-600">{selected.prix.toLocaleString()} FCFA ({selected.payment_method})</span>
-                  </div>
-                </div>
-
-                {selected.chauffeur && (
-                  <div className="mt-3 flex items-center gap-2 text-xs text-gray-600 bg-orange-50/50 border border-orange-100 p-3 rounded-2xl">
-                    <Bus size={16} className="text-orange-500 shrink-0" />
-                    <div>
-                      Chauffeur : <span className="font-bold text-gray-900">{selected.chauffeur.name}</span> • Bus : <span className="font-bold text-gray-900">{selected.chauffeur.bus}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Timeline Traçabilité complète */}
-              <div className="p-6 max-h-[300px] overflow-auto space-y-4">
-                <div className="flex items-center justify-between">
-                  <p className="font-black text-xs uppercase tracking-wider text-gray-400">Traçabilité complète</p>
-                  <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md">Reçu numérique</span>
-                </div>
-
-                <div className="space-y-0 relative pl-2">
-                  <div className="absolute left-[19px] top-3 bottom-3 w-0.5 bg-gray-100" />
-                  
-                  {selected.timeline.map((ev, i) => {
-                    const Icon = timelineIcon[ev.status] || Clock
-                    const isLast = i === selected.timeline.length - 1
-
-                    return (
-                      <div key={i} className="flex gap-4 pb-4 relative group">
-                        <div
-                          className={`w-7 h-7 rounded-full flex items-center justify-center z-10 shrink-0 text-white shadow-sm ${
-                            ev.status === 'PAYE'
-                              ? 'bg-emerald-500'
-                              : isLast
-                              ? 'bg-orange-500 ring-4 ring-orange-100'
-                              : 'bg-gray-900'
-                          }`}
-                        >
-                          <Icon size={13} />
-                        </div>
-                        <div className="flex-1 pt-0.5">
-                          <div className="flex justify-between items-baseline">
-                            <p className="text-xs font-bold text-gray-900">
-                              {ev.status}
-                            </p>
-                            <span className="text-[10px] text-gray-400 font-medium">
-                              {new Date(ev.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-gray-500 font-medium">
-                            {ev.actor} {ev.location ? `• ${ev.location}` : ''}
-                          </p>
-                          {ev.note && (
-                            <p className="text-[11px] text-gray-600 bg-gray-50 rounded-xl px-3 py-1.5 mt-1 border border-gray-100">
-                              {ev.note}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* Boutons d'actions contextuels (Sans annulation, gestion des reçus) */}
-              <div className="p-6 bg-gray-50/50 border-t border-gray-100">
-                <div className="grid grid-cols-1 gap-2">
-                  {selected.status === 'PAYE' && (
-                    <button
-                      onClick={() => updateStatus(selected.id, 'VALIDE', 'Chef Gare', 'Reçu vérifié et validé manuellement')}
-                      className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-bold transition-colors shadow-sm"
-                    >
-                      Valider le reçu / billet
-                    </button>
-                  )}
-                  {selected.status === 'VALIDE' && (
-                    <button
-                      onClick={() => updateStatus(selected.id, 'EMBARQUE', 'Chef Gare', 'QR reçu scanné à l\'embarquement')}
-                      className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl text-xs font-bold transition-colors shadow-sm"
-                    >
-                      Scanner QR → Embarqué
-                    </button>
-                  )}
-                  {selected.status === 'EMBARQUE' && (
-                    <button
-                      onClick={() => updateStatus(selected.id, 'EN_COURS', selected.chauffeur?.name || 'Chauffeur', 'Bus parti sur la route')}
-                      className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl text-xs font-bold transition-colors shadow-sm shadow-orange-200"
-                    >
-                      Marquer en route (Départ)
-                    </button>
-                  )}
-                  {selected.status === 'EN_COURS' && (
-                    <button
-                      onClick={() => updateStatus(selected.id, 'ARRIVE', 'Chauffeur', `Arrivé à destination (${selected.gare_arrivee.nom})`)}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-bold transition-colors shadow-sm"
-                    >
-                      Marquer Arrivé
-                    </button>
-                  )}
-                  <div className="text-center pt-2">
-                    <span className="text-[11px] text-gray-400 italic">
-                      Les billets achetés via l'application mobile génèrent des reçus officiels (pas d'annulation directe en gare).
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Modal QR Code en grand */}
-      {showQR && selected && (
-        <div
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in"
-          onClick={() => setShowQR(false)}
-        >
-          <div
-            className="bg-white rounded-[32px] p-8 text-center relative max-w-sm w-full shadow-2xl border border-gray-100"
-            onClick={e => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setShowQR(false)}
-              className="absolute right-5 top-5 text-gray-400 hover:text-gray-600 w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center transition-colors"
-            >
-              <X size={18} />
-            </button>
-
-            <span className="text-[10px] font-bold uppercase tracking-wider text-orange-600 bg-orange-50 px-3 py-1 rounded-full border border-orange-100">
-              Reçu & Pass d'embarquement
-            </span>
-            <p className="font-black text-xl text-gray-900 mt-3">{selected.code}</p>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {selected.gare_depart.nom} → {selected.gare_arrivee.nom} ({selected.company})
-            </p>
-
-            <div className="bg-white p-6 rounded-3xl mx-auto w-fit border border-gray-100 shadow-lg my-6">
-              <QRCodeSVG value={selected.qr} size={220} level="H" includeMargin />
-            </div>
-
-            <p className="text-xs font-semibold text-gray-700">
-              {selected.passenger.name} • Siège {selected.seat}
-            </p>
-            <p className="text-[11px] text-gray-400 mt-1">
-              Reçu officiel émis par l'application mobile Messay.
-            </p>
-          </div>
+      {accessError && (
+        <div role="alert" className="flex gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <CircleAlert size={19} className="shrink-0" />
+          <div><strong>Impossible de charger vos accès.</strong><p className="mt-1">{accessError}</p></div>
         </div>
       )}
+
+      <section aria-label="Indicateurs des opérations chargées" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {([
+          { label: 'Opérations chargées', value: transactions.length.toLocaleString('fr-FR'), icon: Receipt },
+          { label: 'Ventes enregistrées', value: sales.length.toLocaleString('fr-FR'), icon: TicketCheck },
+          { label: 'Remboursements', value: refunds.length.toLocaleString('fr-FR'), icon: Undo2 },
+          { label: 'Montant net chargé', value: money(netAmount), icon: Wallet },
+        ] as const).map(({ label, value, icon: Icon }) => (
+          <div key={label} className="rounded-[20px] border border-slate-100 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-extrabold text-slate-500">{label}</p>
+              <span className="rounded-xl bg-orange-50 p-2.5 text-orange-600"><Icon size={20}/></span>
+            </div>
+            <p className="mt-3 text-2xl font-black tabular-nums text-slate-900">{loadingAccess || loading ? '—' : value}</p>
+          </div>
+        ))}
+      </section>
+      <p className="text-xs text-slate-500">
+        <CircleAlert size={13} className="mr-1 inline" />
+        Ces chiffres concernent uniquement les lignes chargées pour la période sélectionnée.
+        {nextCursor ? ' D’autres pages sont disponibles : ces totaux sont partiels.' : ''}
+        Ils ne constituent ni un solde de portefeuille ni un rapport comptable consolidé.
+      </p>
+
+      <section className="rounded-[24px] border border-slate-100 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <label className="text-xs font-bold text-slate-600">
+            <span className="mb-1.5 flex items-center gap-1"><CalendarDays size={14}/> Du</span>
+            <input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className={inputClass} />
+          </label>
+          <label className="text-xs font-bold text-slate-600">
+            <span className="mb-1.5 flex items-center gap-1"><CalendarDays size={14}/> Au</span>
+            <input type="date" value={to} min={from} max={localDate(new Date())} onChange={(e) => setTo(e.target.value)} className={inputClass} />
+          </label>
+          <label className="text-xs font-bold text-slate-600">
+            <span className="mb-1.5 flex items-center gap-1"><MapPin size={14}/> Gare</span>
+            <select
+              value={gareId}
+              disabled={!access || loadingAccess}
+              onChange={(e) => setGareId(e.target.value)}
+              className={inputClass}
+            >
+              {access?.role === 'DIRECTION' && <option value="all">Toutes les gares</option>}
+              {gares.length === 0 && <option value="none">Aucune gare affectée</option>}
+              {gares.map((g) => <option key={g.id} value={g.id}>{g.nom} · {g.ville}</option>)}
+            </select>
+          </label>
+          <label className="text-xs font-bold text-slate-600">
+            <span className="mb-1.5 block">Type d’opération</span>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={inputClass}>
+              <option value="all">Tous les statuts</option>
+              <option value="PAYE">Ventes payées</option>
+              <option value="REMBOURSE">Remboursements</option>
+            </select>
+          </label>
+          <label className="text-xs font-bold text-slate-600">
+            <span className="mb-1.5 flex items-center gap-1"><Search size={14}/> Rechercher</span>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Référence, agent, gare…"
+              className={inputClass}
+            />
+          </label>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+          <p className="text-xs text-slate-500">{filtered.length} affichée(s) sur {transactions.length} ligne(s) chargée(s)</p>
+          <CsvExport rows={filtered}/>
+        </div>
+      </section>
+
+      {error && (
+        <div role="alert" className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <CircleAlert size={19} className="shrink-0" /><p>{error}</p>
+        </div>
+      )}
+
+      <div className="grid items-start gap-6 lg:grid-cols-12">
+        <section className="overflow-hidden rounded-[24px] border border-slate-100 bg-white shadow-sm lg:col-span-7">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/50 p-5">
+            <h2 className="text-sm font-black text-slate-900">Registre des opérations</h2>
+            <ListChecks size={18} className="text-orange-500" />
+          </div>
+          <div className="max-h-[650px] divide-y divide-slate-100 overflow-y-auto">
+            {loadingAccess || loading ? (
+              <div className="flex items-center justify-center gap-2 p-12 text-sm text-slate-500">
+                <Loader2 size={19} className="animate-spin" /> Chargement des transactions…
+              </div>
+            ) : filtered.length === 0 ? (
+              <p className="p-12 text-center text-sm text-slate-500">
+                {error ? 'Données momentanément indisponibles.' : 'Aucune transaction pour les filtres sélectionnés.'}
+              </p>
+            ) : filtered.map((t) => {
+              const refund = t.statut.toUpperCase() === 'REMBOURSE';
+              return (
+                <button
+                  type="button"
+                  key={t.id}
+                  onClick={() => setSelectedId(t.id)}
+                  aria-pressed={selectedId === t.id}
+                  className={`flex w-full items-start gap-4 p-4 text-left transition hover:bg-orange-50/40 ${selectedId === t.id ? 'border-l-4 border-orange-500 bg-orange-50/60' : ''}`}
+                >
+                  <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${refund ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                    {refund ? <Undo2 size={21}/> : <TicketCheck size={21}/>}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="truncate text-sm font-black text-slate-900">{t.reference_billet || 'Transaction sans référence de billet'}</span>
+                      <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${refund ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'}`}>
+                        {statusLabel(t.statut)}
+                      </span>
+                    </span>
+                    <span className="mt-2 flex items-center gap-1 text-xs text-slate-600"><Building2 size={13}/>{t.gare_nom}</span>
+                    <span className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                      <span>{t.canal} · {t.mode_paiement} · {formattedDate(t.occurred_at)}</span>
+                      <strong className="text-slate-900">{money(t.montant_fcfa)}</strong>
+                    </span>
+                  </span>
+                  <ChevronRight size={16} className="mt-3 shrink-0 text-slate-300"/>
+                </button>
+              );
+            })}
+          </div>
+          {nextCursor && !loading && (
+            <div className="border-t border-slate-100 p-4 text-center">
+              <button
+                type="button"
+                onClick={() => void loadTransactions(true, nextCursor)}
+                disabled={loadingMore}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {loadingMore && <Loader2 size={15} className="animate-spin"/>}
+                Charger 50 opérations supplémentaires
+              </button>
+            </div>
+          )}
+        </section>
+
+        <aside className="overflow-hidden rounded-[24px] border border-slate-100 bg-white shadow-sm lg:sticky lg:top-6 lg:col-span-5">
+          {selected ? (
+            <>
+              <div className="bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white">
+                <p className="text-[10px] font-black uppercase tracking-wider text-orange-300">Transaction vérifiée par le backend</p>
+                <h2 className="mt-2 break-all text-xl font-black">{selected.reference_billet || selected.id}</h2>
+                <p className="mt-2 text-xs text-slate-300">{selected.gare_nom}</p>
+                <div className="mt-5 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <span className="text-xs text-slate-300">Montant de l'opération</span>
+                  <strong className="text-lg text-orange-300">{money(selected.montant_fcfa)}</strong>
+                </div>
+              </div>
+              <div className="space-y-3 p-6">
+                <h3 className="mb-3 text-sm font-black text-slate-900">Détails enregistrés</h3>
+                {([
+                  ['Date', formattedDate(selected.occurred_at), Clock3],
+                  ['Gare', selected.gare_nom, MapPin],
+                  ['Canal', selected.canal, ArrowRight],
+                  ['Paiement', selected.mode_paiement, Banknote],
+                  ['Statut', statusLabel(selected.statut), ShieldCheck],
+                  ['Agent', selected.agent_nom || 'Non attribué', Building2],
+                  ['Commission MESSAY', money(selected.commission_messay_fcfa), Wallet],
+                  ['Part compagnie', money(selected.part_compagnie_fcfa), Receipt],
+                ] as const).map(([label, value, Icon]) => (
+                  <div key={label} className="flex items-center justify-between gap-3 border-b border-slate-100 py-2 text-xs">
+                    <span className="inline-flex items-center gap-2 text-slate-500"><Icon size={14}/>{label}</span>
+                    <strong className="text-right text-slate-800">{value}</strong>
+                  </div>
+                ))}
+                <div className="mt-5 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-xs leading-5 text-amber-900">
+                  <p className="font-black">QR code et contrôle d'embarquement indisponibles sur ce registre</p>
+                  <p className="mt-1">L'API actuelle renvoie les transactions, mais pas le QR signé, le nom du passager, le siège ou la chronologie du trajet. Aucun billet ne sera marqué « embarqué » sans vérification et confirmation par le serveur.</p>
+                </div>
+                <Link to="/gares" className="inline-flex items-center gap-2 text-xs font-extrabold text-orange-600 hover:underline">
+                  <Building2 size={15}/> Accéder à la gestion des gares <ArrowRight size={14}/>
+                </Link>
+              </div>
+            </>
+          ) : (
+            <div className="flex min-h-80 flex-col items-center justify-center p-8 text-center">
+              <Receipt size={36} className="text-orange-200"/>
+              <h2 className="mt-3 font-black text-slate-800">Détails de transaction</h2>
+              <p className="mt-2 text-sm text-slate-500">Sélectionnez une opération dans la liste.</p>
+            </div>
+          )}
+        </aside>
+      </div>
+
+      <p className="flex items-start gap-2 text-xs leading-5 text-slate-500">
+        <ShieldCheck size={16} className="mt-0.5 shrink-0"/>
+        Les accès compagnie et gare sont vérifiés par Express. La liste n'est pas une liste complète des réservations : les achats non payés, sièges, passagers, QR et changements d'étape de trajet doivent venir d'une API de réservation distincte et sécurisée.
+      </p>
     </div>
-  )
+  );
 }

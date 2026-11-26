@@ -5,25 +5,20 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "icon": "./assets/logo.png",
-    "splash": {
-      "image": "./assets/logo.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0f172a"
-    },
+    "icon": "./assets/logo-square.png",
+    "scheme": "messay",
+    "owner": "bradfal",
     "assetBundlePatterns": [
       "assets/**/*"
     ],
-    "scheme": "messay",
-    "owner": "bradfal",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.messay.tricycle",
       "buildNumber": "1",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "MESSAY a besoin de ta position pour trouver un tricycle près de toi à Abidjan.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Pour suivre ta course en temps réel même quand l'app est fermée",
-        "NSCameraUsageDescription": "Pour scanner les QR codes de paiement",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "MESSAY utilise ta position pour assurer le suivi de tes courses en temps réel, y compris en arrière-plan lorsque cette autorisation est activée.",
+        "NSCameraUsageDescription": "MESSAY utilise la caméra pour scanner les QR codes de paiement.",
         "UIBackgroundModes": [
           "location",
           "fetch",
@@ -31,7 +26,7 @@
         ]
       },
       "config": {
-        "googleMapsApiKey": "AIzaSyCsHs_23j3tUjHDvBzNLf0DFh-FtRTFP6U"
+        "googleMapsApiKey": "REMPLACER_PAR_VOTRE_CLE_GOOGLE_MAPS_IOS"
       }
     },
     "android": {
@@ -39,9 +34,9 @@
       "versionCode": 1,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/logo.png",
+        "foregroundImage": "./assets/logo-square.png",
         "backgroundColor": "#FF6B35",
-        "monochromeImage": "./assets/logo.png"
+        "monochromeImage": "./assets/logo-square.png"
       },
       "permissions": [
         "ACCESS_FINE_LOCATION",
@@ -57,7 +52,7 @@
       ],
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyCsHs_23j3tUjHDvBzNLf0DFh-FtRTFP6U"
+          "apiKey": "REMPLACER_PAR_VOTRE_CLE_GOOGLE_MAPS_ANDROID"
         }
       },
       "intentFilters": [
@@ -78,9 +73,19 @@
     "plugins": [
       "expo-router",
       [
+        "expo-splash-screen",
+        {
+          "image": "./assets/logo.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#0f172a"
+        }
+      ],
+      [
         "expo-notifications",
         {
-          "icon": "./assets/notification-icon.png"
+          "icon": "./assets/notification-icon.png",
+          "color": "#FF6B35"
         }
       ],
       "@react-native-firebase/app",
@@ -93,18 +98,27 @@
       ],
       [
         "expo-build-properties",
+  {
+    "android": {
+      "compileSdkVersion": 37,
+      "targetSdkVersion": 36,
+      "minSdkVersion": 24
+    },
+    "ios": {
+      "deploymentTarget": "16.4"
+    }
+  }
+      ],
+      "@react-native-community/datetimepicker",
+      [
+        "@stripe/stripe-react-native",
         {
-          "android": {
-            "compileSdkVersion": 35,
-            "targetSdkVersion": 35,
-            "minSdkVersion": 24
-          },
-          "ios": {
-            "deploymentTarget": "15.1"
-          }
+          "merchantIdentifier": [],
+          "enableGooglePay": false
         }
       ],
-      "@react-native-community/datetimepicker"
+      "expo-sharing",
+      "expo-font"
     ],
     "extra": {
       "router": {
@@ -113,11 +127,6 @@
       "eas": {
         "projectId": "3243e067-efa6-40ed-b4cd-a8dc6782e23c"
       }
-    },
-    "notification": {
-      "icon": "./assets/notification-icon.png",
-      "androidMode": "default",
-      "androidCollapsedTitle": "MESSAY"
     }
   }
 }

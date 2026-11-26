@@ -1,4 +1,3 @@
-
 import type { Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { AuthService, AuthError } from '../services/auth.service';
@@ -7,26 +6,17 @@ import {
   loginSchema,
   verifyOTPSchema,
   refreshTokenSchema,
+  requestPassengerOTPSchema,
+  verifyPassengerOTPSchema,
 } from '../validators/auth.validator';
 
-/**
- * MESSAY - Contrôleur d'authentification
- * Compatible avec AuthService sécurisé et Express.Request typé
- * dans src/types/express.d.ts.
- */
 const authService = new AuthService();
 
-/** Conserve le format { error } attendu par React Native et les dashboards. */
-function sendAuthError(
-  res: Response,
-  error: unknown,
-  action: string
-): void {
-  // Erreurs de saisie : 400, avec détails utiles pour les formulaires.
+function sendAuthError(res: Response, error: unknown, action: string): void {
   if (error instanceof ZodError) {
     res.status(400).json({
       error: error.issues[0]?.message ?? 'Données invalides',
-      errors: error.issues.map((issue) => ({
+      errors: error.issues.map(issue => ({
         field: issue.path.join('.') || 'body',
         message: issue.message,
       })),
@@ -34,20 +24,16 @@ function sendAuthError(
     return;
   }
 
-  // Erreurs métier prévisibles : 401, 403, 409, 501, etc.
   if (error instanceof AuthError) {
     const statusCode =
       Number.isInteger(error.statusCode) &&
-      error.statusCode >= 400 &&
-      error.statusCode <= 599
+      error.statusCode >= 400 && error.statusCode <= 599
         ? error.statusCode
         : 400;
-
     res.status(statusCode).json({ error: error.message });
     return;
   }
 
-  // Ne jamais transmettre les détails d'une panne interne au client.
   console.error(`[AUTH/${action}] Erreur inattendue`, error);
   res.status(500).json({
     error: "Le service d'authentification est temporairement indisponible",
@@ -55,7 +41,7 @@ function sendAuthError(
 }
 
 export class AuthController {
-  /** POST /api/auth/register — inscription client uniquement. */
+  /** Compatibilité historique (désactivée publiquement par auth.routes.ts). */
   register = async (req: Request, res: Response): Promise<void> => {
     try {
       const data = registerSchema.parse(req.body);
@@ -66,19 +52,18 @@ export class AuthController {
     }
   };
 
-  /** POST /api/auth/login — téléphone ou email + mot de passe. */
+  /** Connexion existante : conducteurs et administrateurs notamment. */
   login = async (req: Request, res: Response): Promise<void> => {
     try {
       const data = loginSchema.parse(req.body);
       const result = await authService.login(data);
       res.status(200).json(result);
     } catch (error: unknown) {
-      // Aucun numéro, email ni mot de passe n'est écrit dans les logs.
       sendAuthError(res, error, 'LOGIN');
     }
   };
 
-  /** POST /api/auth/verify-otp — retourne 501 tant que le SMS n'est pas intégré. */
+  /** Route historique : conserve son comportement sans OTP fictif. */
   verifyOTP = async (req: Request, res: Response): Promise<void> => {
     try {
       const data = verifyOTPSchema.parse(req.body);
@@ -89,17 +74,35 @@ export class AuthController {
     }
   };
 
-  /** GET /api/auth/me — doit être protégé par authenticate dans auth.routes.ts. */
+  /** POST /api/auth/otp/request — crée le défi puis demande l'envoi SMS. */
+  requestPassengerOTP = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { telephone } = requestPassengerOTPSchema.parse(req.body);
+      const result = await authService.requestPassengerOTP(telephone);
+      res.status(200).json(result);
+    } catch (error: unknown) {
+      sendAuthError(res, error, 'OTP_REQUEST');
+    }
+  };
+
+  /** POST /api/auth/otp/verify — vérifie l'OTP et ouvre une session USER. */
+  verifyPassengerOTP = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const data = verifyPassengerOTPSchema.parse(req.body);
+      const result = await authService.verifyPassengerOTP(data);
+      res.status(200).json(result);
+    } catch (error: unknown) {
+      sendAuthError(res, error, 'OTP_VERIFY');
+    }
+  };
+
+  /** Route protégée par le middleware authenticate. */
   getProfile = async (req: Request, res: Response): Promise<void> => {
     const user = req.user;
-
     if (!user) {
       res.status(401).json({ error: 'Authentification requise' });
       return;
     }
-
-    // Liste blanche : ne pas renvoyer password, otpCode, otpExpiry, deviceToken
-    // ou refreshToken, même si un ancien middleware charge le User complet.
     res.status(200).json({
       user: {
         id: user.id,
@@ -118,7 +121,7 @@ export class AuthController {
     });
   };
 
-  /** POST /api/auth/refresh — vérification puis rotation du refresh token. */
+  /** Rotation des refresh tokens existants, inchangée. */
   refreshToken = async (req: Request, res: Response): Promise<void> => {
     try {
       const { refreshToken } = refreshTokenSchema.parse(req.body);

@@ -2,7 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
 
 // Charger les variables d'environnement
-dotenv.config();
+dotenv.config({ path: process.env.MESSAY_ENV_FILE || '.env' });
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL n'est pas défini dans le fichier .env");

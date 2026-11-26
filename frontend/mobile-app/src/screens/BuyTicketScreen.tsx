@@ -1,3 +1,4 @@
+import type { TextInputInstance } from 'react-native';
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, StatusBar, ImageBackground, Alert, Keyboard, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -27,7 +28,7 @@ export default function BuyTicketScreen() {
   const [date, setDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
   const [loading, setLoading] = useState(true);
-  const destRef = useRef<TextInput>(null);
+  const destRef = useRef<TextInputInstance>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -139,7 +140,7 @@ export default function BuyTicketScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={companyColor} />
+      <StatusBar barStyle="light-content" />
       <LinearGradient colors={[companyColor, companyColor]} style={styles.header}>
         <SafeAreaView edges={['top']}>
           <View style={styles.hBar}>

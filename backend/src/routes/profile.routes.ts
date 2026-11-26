@@ -343,17 +343,8 @@ router.post(
       return;
     }
 
-    if (
-      typeof password !== "string" ||
-      !password
-    ) {
-      res.status(400).json({
-        error:
-          "Votre mot de passe est nécessaire",
-      });
-      return;
-    }
-
+    // La vérification du mot de passe se fait après la lecture
+    // du compte : les passagers OTP peuvent avoir password = null.
     try {
       const user = await prisma.user.findUnique({
         where: { id: userId },
@@ -371,11 +362,26 @@ router.post(
         return;
       }
 
-      // Cette comparaison suppose que les mots
-      // de passe MESSAY sont hachés avec bcrypt.
-      // Utiliser le même vérificateur que le
-      // service de connexion existant.
+      // Un compte OTP n'a aucun mot de passe à comparer.
+      // Ne jamais considérer la session seule comme une preuve
+      // suffisante pour cette opération sensible.
+      // Prévoir ensuite une confirmation OTP récente côté serveur.
+      if (user.password === null) {
+        res.status(403).json({
+          error:
+            "La demande de suppression des comptes sans mot de passe nécessite une vérification SMS supplémentaire. Contactez le support MESSAY en attendant son activation.",
+        });
+        return;
+      }
 
+      if (typeof password !== "string" || password.length === 0) {
+        res.status(400).json({
+          error: "Votre mot de passe est nécessaire",
+        });
+        return;
+      }
+
+      // Les comptes historiques disposent d'un hash bcrypt.
       const validPassword = await compare(
         password,
         user.password

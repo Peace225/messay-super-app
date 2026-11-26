@@ -1,5 +1,4 @@
 import 'dotenv/config';
-
 import express, {
   type Application,
   type Request,
@@ -14,25 +13,58 @@ import {
 } from 'socket.io';
 import swaggerUi from 'swagger-ui-express';
 import prisma from './config/database';
+import { creerRouterBilletQrPassager } from './routes/messayBilletQr.routes';
 import { verifyAccessToken } from './utils/jwt';
 import { authenticate, authorize } from './middleware/auth';
 import swaggerSpec from './config/swagger';
 import routes from './routes';
-import { pushDevicesRouter } from './routes/pushDevices.routes';
+import { interurbainCatalogueRouter } from './routes/interurbainCatalogue.routes';
+// MESSAY Mobile — réservations STAGING et PRODUCTION, routes séparées.
+import { interurbainReservationRouter } from './routes/interurbainReservation.routes';
+import { interurbainReservationProductionRouter } from './routes/interurbainReservationProduction.routes';
+import { interurbainPaiementProductionRouter } from './routes/interurbainPaiementProduction.routes';
+import { interurbainGeniusPayWebhookRouter } from './routes/interurbainGeniusPayWebhook.routes';
+import { interurbainLocalStagingRouter } from './routes/interurbainLocalStaging.routes';
 import logistiqueRoutes from './routes/logistique.routes';
 import profileRoutes from './routes/profile.routes';
+import adminTransportRoutes from './routes/adminTransport.routes';
+import {
+  companyDashboardGaresRouter,
+  messayInvitationActivationRouter,
+  requireMessayCompanyAccess,
+  messayCompanyDashboardErrorHandler,
+} from './routes/companyDashboardGares.routes';
+// MESSAY PRO : bus interurbains et planification des gares.
+import { messayBusRouter } from './routes/messayBus.routes';
+import { garePlanningRouter } from './routes/garePlaning.routes';
+import { messayEmbarquementRouter } from './routes/messayEmbarquement.routes';
 import {
   errorHandler,
   notFound,
 } from './middleware/errorHandler';
+import { messayChauffeursInterurbainsRouter }
+  from './routes/messayChauffeursInterurbains.routes';
+// MESSAY PUSH : registre des appareils, accessible via API authentifiée.
+import { pushDevicesRouter } from './routes/pushDevices.routes';
+
 // Une seule instance Prisma pour l'ensemble du backend
 export { prisma };
 const app: Application = express();
+
+// ============================================================
+// PROXY INVERSE RENDER — IP CLIENT POUR LA LIMITATION OTP
+// ============================================================
+// Render définit RENDER='true' pour les services hébergés.
+// Le réglage 1 suppose un seul proxy de confiance entre le client
+// et Express. Il doit être confirmé après déploiement en contrôlant
+// req.ip et les en-têtes de transfert sur une route de diagnostic
+// temporaire et protégée, sans journaliser d'informations sensibles.
+// En local, les en-têtes X-Forwarded-* ne sont pas considérés fiables.
+app.set('trust proxy', process.env.RENDER === 'true' ? 1 : false);
 const httpServer = createServer(app);
 
 // ============================================================
 // 1. CONFIGURATION CORS
-
 // ============================================================
 const developmentOrigins = [
   'http://localhost:3000',
@@ -77,7 +109,6 @@ const corsOptions: CorsOptions = {
 
 // ============================================================
 // 2. INITIALISATION SOCKET.IO
-
 // ============================================================
 const io = new SocketIOServer(httpServer, {
   cors: corsOptions,
@@ -91,7 +122,6 @@ export const getIO = (): SocketIOServer => io;
 
 // ============================================================
 // 3. MIDDLEWARES EXPRESS
-
 // ============================================================
 app.disable('x-powered-by');
 app.use(
@@ -101,6 +131,10 @@ app.use(
   })
 );
 app.use(cors(corsOptions));
+// Réception GeniusPay : AVANT express.json(), qui altérerait le corps brut
+// nécessaire à la vérification de la signature. INBOX seulement, désactivée
+// par défaut, sans émission de billets ni confirmation financière.
+app.use('/api/interurbain/webhooks/geniuspay', interurbainGeniusPayWebhookRouter);
 app.use(express.json({ limit: '1mb' }));
 app.use(
   express.urlencoded({
@@ -111,7 +145,6 @@ app.use(
 
 // ============================================================
 // 4. HEALTH CHECK
-
 // ============================================================
 app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({
@@ -123,7 +156,6 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // ============================================================
 // 5. ROUTES EXISTANTES
-
 // ============================================================
 app.use('/api/logistique', logistiqueRoutes);
 if (
@@ -139,7 +171,6 @@ if (
 
 // ============================================================
 // 6. STATISTIQUES FINANCIÈRES
-
 // ============================================================
 app.get(
   '/api/finance/stats',
@@ -244,7 +275,6 @@ app.get(
 
 // ============================================================
 // 7. TRANSACTIONS FINANCIÈRES
-
 // ============================================================
 app.get(
   '/api/finance/transactions',
@@ -296,13 +326,60 @@ app.get(
 // Routes du profil : doivent être montées avant le routeur général.
 // URL : /api/users/me/photo et /api/users/me/deletion-request
 app.use('/api/users/me', profileRoutes);
-// Routes principales du backend
+// Routes d'administration tricycle : protégées dans adminTransport.routes.ts.
+// Monter avant le routeur principal /api et les gestionnaires 404.
+app.use('/api/admin/transport', adminTransportRoutes);
+
+// ============================================================
+// MESSAY PRO — ROUTES PRIVÉES AVEC AUTORISATIONS CENTRALISÉES
+// ============================================================
+// L'activation d'une invitation utilise Supabase Auth, mais ne demande
+// pas encore de rôle actif dans une compagnie.
+app.use('/api/company-dashboard', messayInvitationActivationRouter);
+
+// Le middleware partage l'identité Supabase et les droits relus en SQL
+// avec les routeurs privés montés en dessous, sans se fier au frontend.
+app.use('/api/company-dashboard', requireMessayCompanyAccess);
+
+// Gares, équipes, invitations, transactions et rapports.
+app.use('/api/company-dashboard', companyDashboardGaresRouter);
+// Bus, affectations et réservations des sièges.
+app.use('/api/company-dashboard', messayBusRouter);
+// Planning des gares.
+app.use('/api/company-dashboard', garePlanningRouter);
+app.use('/api/company-dashboard', messayEmbarquementRouter);
+// Registre des chauffeurs de bus (distinct des tricycles).
+app.use('/api/company-dashboard', messayChauffeursInterurbainsRouter);
+// Respecter les statuts HTTP métier (401, 403, 404, 409, etc.).
+app.use('/api/company-dashboard', messayCompanyDashboardErrorHandler);
+
+// MESSAY Mobile — réservations techniques, séparées par environnement.
+// STAGING/DEV : aucune écriture sur le projet de production.
+// PRODUCTION : route dédiée, désactivée tant que les garanties SQL
+// et MESSAY_PROD_RESERVATIONS_ENABLED ne sont pas validées.
+// Ne crée ni paiement ni billet et ne choisit pas de siège.
+// Monter AVANT le catalogue et les gestionnaires de 404.
+if (process.env.NODE_ENV === 'development') {
+  app.use('/api/interurbain', interurbainLocalStagingRouter);
+  app.use('/api/interurbain', interurbainReservationRouter);
+} else if (process.env.NODE_ENV === 'production') {
+  app.use('/api/interurbain', interurbainReservationProductionRouter);
+  // Contrat mobile connu ; HTTP 503 maintenu jusqu'aux migrations financières.
+  app.use('/api/interurbain', interurbainPaiementProductionRouter);
+}
+// Catalogue commun, en lecture seule, pour le mobile et les dashboards.
+// Consultation read-only des billets QR authentifies (OFF par defaut).
+app.use('/api/interurbain/billets', creerRouterBilletQrPassager(prisma));
+app.use('/api/interurbain', interurbainCatalogueRouter);
+// MESSAY PUSH : API du registre des appareils (JWT obligatoire dans le routeur).
+// Routes disponibles : POST et DELETE /api/push/devices.
+// Monter AVANT le routeur général /api et les gestionnaires 404 / erreurs.
 app.use('/api/push', pushDevicesRouter);
+// Routes principales du backend.
 app.use('/api', routes);
 
 // ============================================================
 // 8. TYPES ET UTILITAIRES SOCKET.IO
-
 // ============================================================
 type SocketIdentity = {
   userId: string;
@@ -325,7 +402,6 @@ const identityOf = (socket: Socket): SocketIdentity =>
 
 // ============================================================
 // 9. SALONS DES CONDUCTEURS
-
 // ============================================================
 async function updateDriverRoom(
   socket: Socket
@@ -375,7 +451,6 @@ async function updateDriverRoom(
 
 // ============================================================
 // 10. AUTHENTIFICATION SOCKET.IO PAR JWT
-
 // ============================================================
 io.use(async (socket, next) => {
   try {
@@ -428,7 +503,6 @@ io.use(async (socket, next) => {
 
 // ============================================================
 // 11. CONNEXION SOCKET.IO
-
 // ============================================================
 io.on('connection', (socket: Socket) => {
   const identity = identityOf(socket);
@@ -557,6 +631,91 @@ io.on('connection', (socket: Socket) => {
       }
     }
   );
+  // ==========================================================
+  // 14B. POSITION GPS REELLE DU CONDUCTEUR
+  // ==========================================================
+  // Une mise a jour ne peut provenir que du conducteur affecte.
+  // Ne jamais se fier a un conducteurId envoye par le telephone.
+  let lastGpsAcceptedAt = 0;
+  let gpsUpdateInFlight = false;
+  socket.on('driver_location', async (payload: unknown) => {
+    if (identity.role !== 'CONDUCTEUR' || gpsUpdateInFlight) return;
+    if (!payload || typeof payload !== 'object') return;
+    const data = payload as Record<string, unknown>;
+    const courseId = parseCourseId(data);
+    const lat = data.lat;
+    const lng = data.lng;
+    if (
+      !courseId ||
+      typeof lat !== 'number' || typeof lng !== 'number' ||
+      !Number.isFinite(lat) || !Number.isFinite(lng) ||
+      lat < -90 || lat > 90 || lng < -180 || lng > 180
+    ) {
+      socket.emit('driver_location_error', {
+        message: 'Identifiant de course ou coordonnees invalides',
+      });
+      return;
+    }
+    if (Date.now() - lastGpsAcceptedAt < 2000) return;
+    gpsUpdateInFlight = true;
+    try {
+      const conducteur = await prisma.conducteur.findUnique({
+        where: { userId: identity.userId },
+        select: {
+          id: true,
+          isVerified: true,
+          user: { select: { isBlocked: true, role: true } },
+        },
+      });
+      if (
+        !conducteur || !conducteur.isVerified ||
+        conducteur.user.isBlocked || conducteur.user.role !== 'CONDUCTEUR'
+      ) return;
+      // Mise a jour conditionnelle : une course annulee ou terminee
+      // ne doit pas accepter de nouvelle position GPS.
+      const result = await prisma.course.updateMany({
+        where: {
+          id: courseId,
+          conducteurId: conducteur.id,
+          statut: { in: ['ACCEPTEE', 'EN_COURS'] },
+        },
+        data: {
+          positionLiveLatitude: lat,
+          positionLiveLongitude: lng,
+        },
+      });
+      if (result.count !== 1) return;
+      const course = await prisma.course.findUnique({
+        where: { id: courseId },
+        select: { userId: true, conducteurId: true, statut: true },
+      });
+      if (
+        !course || course.conducteurId !== conducteur.id ||
+        !['ACCEPTEE', 'EN_COURS'].includes(course.statut)
+      ) return;
+      lastGpsAcceptedAt = Date.now();
+      const event = {
+        courseId,
+        rideId: courseId,
+        driverId: conducteur.id,
+        lat,
+        lng,
+        timestamp: new Date().toISOString(),
+      };
+      // Union de deux salons : pas de notification dupliquee si le
+      // passager a egalement rejoint le salon de sa course.
+      io.to(`user-${course.userId}`)
+        .to(`course-${courseId}`)
+        .emit('driver_location', event);
+    } catch (error) {
+      console.error('[SOCKET/DRIVER-GPS]', error);
+      socket.emit('driver_location_error', {
+        message: 'Impossible de mettre a jour la position GPS',
+      });
+    } finally {
+      gpsUpdateInFlight = false;
+    }
+  });
   // ==========================================================
   // 15. FLOTTE TRICYCLE — ADMIN
   // ==========================================================
@@ -763,14 +922,12 @@ io.on('connection', (socket: Socket) => {
 
 // ============================================================
 // 18. ERREURS EXPRESS
-
 // ============================================================
 app.use(notFound);
 app.use(errorHandler);
 
 // ============================================================
 // 19. DÉMARRAGE DU SERVEUR
-
 // ============================================================
 const PORT = Number(
   process.env.PORT || '10000'
@@ -790,7 +947,6 @@ httpServer.listen(PORT, '0.0.0.0', () => {
 
 // ============================================================
 // 20. ARRÊT PROPRE DU SERVEUR
-
 // ============================================================
 let stopping = false;
 async function shutdown(

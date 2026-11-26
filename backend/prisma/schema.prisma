@@ -161,9 +161,9 @@ model User {
   id String @id @default(uuid())
   nom String
   prenom String?
-  email String @unique
+  email String? @unique
   telephone String @unique
-  password String
+  password String?
   role UserRole @default(USER)
   photo String?
   moyenPaiement MoyenPaiement?
@@ -293,7 +293,12 @@ model Ticket {
   dateDepart DateTime
   heureDepart String
   numeroBus String?
-  siege String
+  // Le siege est attribue par la compagnie apres confirmation du paiement.
+  siege String?
+
+  // Liaison facultative au depart MESSAY PRO
+  affectationId String? @db.Uuid
+  siegeNumero Int?
   classe ClasseTicket @default(STANDARD)
   prix Float
   methodePaiement MoyenPaiement?
@@ -310,6 +315,9 @@ model Ticket {
   paiementId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Index de recherche, pas d'unicite
+  @@index([affectationId, siegeNumero])
 }
 
 model Event {

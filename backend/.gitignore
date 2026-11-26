@@ -10,3 +10,4 @@ coverage/
 # Firebase Admin SDK (Secret Keys)
 config/firebase-service-account.json
 firebase-service-account.json
+.env

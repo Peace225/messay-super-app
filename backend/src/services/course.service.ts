@@ -265,4 +265,64 @@ export class CourseService {
       return tx.course.findUniqueOrThrow({ where: { id: courseId }, include: COURSE_INCLUDE });
     });
   }
+
+  /**
+   * Annulation par le passager avant le démarrage de la course.
+   * La mise à jour conditionnelle évite de confirmer une course déjà modifiée.
+   */
+  async annulerCourse(courseId: string, userId: string) {
+    return prisma.$transaction(async (tx) => {
+      const course = await tx.course.findUnique({
+        where: { id: courseId },
+        select: { id: true, userId: true, conducteurId: true, statut: true },
+      });
+
+      if (!course) throw new CourseError('Course introuvable', 404);
+      if (course.userId !== userId) {
+        throw new CourseError('Vous ne pouvez pas annuler cette course', 403);
+      }
+      if (course.statut !== 'EN_ATTENTE' && course.statut !== 'ACCEPTEE') {
+        throw new CourseError('Cette course ne peut plus être annulée', 409);
+      }
+
+      const updated = await tx.course.updateMany({
+        where: {
+          id: course.id,
+          userId,
+          statut: course.statut,
+          conducteurId: course.conducteurId,
+        },
+        data: { statut: 'ANNULEE' },
+      });
+      if (updated.count !== 1) {
+        throw new CourseError('Course déjà modifiée, actualisez vos informations', 409);
+      }
+
+      // Une annulation d'une course attribuée libère le conducteur de cette course.
+      // Le retour HORS_LIGNE évite une remise en ligne sans son consentement.
+      if (course.conducteurId) {
+        const otherActiveCourses = await tx.course.count({
+          where: {
+            conducteurId: course.conducteurId,
+            statut: { in: ['ACCEPTEE', 'EN_COURS'] },
+          },
+        });
+        if (otherActiveCourses === 0) {
+          await tx.conducteur.updateMany({
+            where: { id: course.conducteurId, statut: 'EN_COURSE' },
+            data: {
+              statut: 'HORS_LIGNE',
+              disponible: false,
+              isAvailable: false,
+            },
+          });
+        }
+      }
+
+      return tx.course.findUniqueOrThrow({
+        where: { id: course.id },
+        include: COURSE_INCLUDE,
+      });
+    });
+  }
 }

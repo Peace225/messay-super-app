@@ -59,7 +59,7 @@ export default function EditProfileScreen() {
 
   return (
     <SafeAreaView style={styles.mainWrapper} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor="white" />
+      <StatusBar barStyle="dark-content" />
       
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>

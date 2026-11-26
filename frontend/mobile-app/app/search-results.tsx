@@ -284,7 +284,7 @@ export default function SearchResultsScreen() {
 
   return (
     <View style={s.c}>
-      <StatusBar barStyle="light-content" backgroundColor={companyColor} />
+      <StatusBar barStyle="light-content" />
       <LinearGradient colors={[companyColor, companyColor]} style={s.h}>
         <SafeAreaView edges={['top']}>
           <View style={s.hb}>

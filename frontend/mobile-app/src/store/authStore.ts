@@ -1,129 +1,181 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { revokePushDeviceOnLogout } from '../services/pushDeviceApi';
 
-// 💎 MISE À JOUR : Ajout de 'USER' car c'est le rôle par défaut dans Supabase
-type UserRole = 'USER' | 'CLIENT' | 'CONDUCTEUR' | 'CHAUFFEUR' | 'ADMIN';
+// Conserve les rôles historiques pour ne pas casser les dashboards / écrans conducteurs.
+export type UserRole = 'USER' | 'CLIENT' | 'CONDUCTEUR' | 'CHAUFFEUR' | 'ADMIN';
 
-interface User {
+export interface AuthUser {
   id: string;
   nom: string;
-  prenom?: string;
-  email: string;
+  prenom?: string | null;
+  email?: string | null;
   telephone: string;
   role: UserRole;
-  photo?: string;
+  photo?: string | null;
   isVerified: boolean;
+  isBlocked?: boolean;
+  moyenPaiement?: unknown;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AuthSession {
+  user: AuthUser;
+  accessToken: string;
+  refreshToken: string;
 }
 
 interface AuthState {
-  user: User | null;
+  user: AuthUser | null;
   accessToken: string | null;
   refreshToken: string | null;
   initialScreen: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  
-  setUser: (user: User) => Promise<void>;
-  updateUser: (data: Partial<User>) => Promise<void>; 
+  setSession: (session: AuthSession) => Promise<void>;
+  setUser: (user: AuthUser) => Promise<void>;
+  updateUser: (data: Partial<AuthUser>) => Promise<void>;
   setTokens: (accessToken: string, refreshToken: string) => Promise<void>;
   logout: () => Promise<void>;
   loadAuthData: () => Promise<void>;
   clearInitialScreen: () => void;
 }
 
-// 🛠️ Fonction utilitaire pour éviter la duplication du calcul de l'écran initial
+const KEYS = ['accessToken', 'refreshToken', 'user'] as const;
+
 const getInitialScreen = (role: UserRole): string => {
   if (role === 'CONDUCTEUR') return 'screens/ConducteurCoursesScreen';
   if (role === 'CHAUFFEUR') return 'screens/ChauffeurLivraisonsScreen';
-  return '(tabs)'; // Par défaut pour USER et CLIENT
+  return '(tabs)';
 };
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+function isAuthUser(value: unknown): value is AuthUser {
+  if (!value || typeof value !== 'object') return false;
+  const user = value as Partial<AuthUser>;
+  return (
+    typeof user.id === 'string' && user.id.length > 0 &&
+    typeof user.nom === 'string' && user.nom.length > 0 &&
+    typeof user.telephone === 'string' && user.telephone.length > 0 &&
+    ['USER', 'CLIENT', 'CONDUCTEUR', 'CHAUFFEUR', 'ADMIN'].includes(String(user.role)) &&
+    typeof user.isVerified === 'boolean'
+  );
+}
+
+const EMPTY_AUTH = {
   user: null,
   accessToken: null,
   refreshToken: null,
   initialScreen: null,
   isAuthenticated: false,
+  isLoading: false,
+} as const;
+
+export const useAuthStore = create<AuthState>((set, get) => ({
+  ...EMPTY_AUTH,
   isLoading: true,
 
-  setUser: async (user) => {
-    try {
-      await AsyncStorage.setItem('user', JSON.stringify(user));
-      const screen = getInitialScreen(user.role);
-      
-      set({ 
-        user, 
-        initialScreen: screen, 
-        isAuthenticated: true,
-        isLoading: false // On s'assure que le chargement s'arrête ici
-      });
-    } catch (error) {
-      console.error("Erreur sauvegarde user:", error);
+  setSession: async ({ user, accessToken, refreshToken }) => {
+    if (!isAuthUser(user) || !accessToken?.trim() || !refreshToken?.trim()) {
+      throw new Error('Session MESSAY incomplète ou invalide.');
     }
-  },
-
-  updateUser: async (data) => {
-    const currentUser = get().user;
-    if (currentUser) {
-      const updatedUser = { ...currentUser, ...data };
-      await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
-      set({ user: updatedUser });
-    }
-  },
-
-  setTokens: async (accessToken, refreshToken) => {
-    try {
-      await AsyncStorage.multiSet([
-        ['accessToken', accessToken],
-        ['refreshToken', refreshToken]
-      ]);
-      set({ accessToken, refreshToken, isAuthenticated: true });
-    } catch (error) {
-      console.error("Erreur sauvegarde tokens:", error);
-    }
-  },
-
-  logout: async () => {
-    await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'user']);
+    await AsyncStorage.multiSet([
+      ['accessToken', accessToken],
+      ['refreshToken', refreshToken],
+      ['user', JSON.stringify(user)],
+    ]);
     set({
-      user: null,
-      accessToken: null,
-      refreshToken: null,
-      initialScreen: null,
-      isAuthenticated: false,
+      user,
+      accessToken,
+      refreshToken,
+      initialScreen: getInitialScreen(user.role),
+      isAuthenticated: true,
       isLoading: false,
     });
   },
 
-  loadAuthData: async () => {
-    try {
-      const results = await AsyncStorage.multiGet(['accessToken', 'refreshToken', 'user']);
-      const accessToken = results[0][1];
-      const refreshToken = results[1][1];
-      const userJson = results[2][1];
+  setUser: async (user) => {
+    if (!isAuthUser(user)) throw new Error('Profil utilisateur invalide.');
+    await AsyncStorage.setItem('user', JSON.stringify(user));
+    set({
+      user,
+      initialScreen: getInitialScreen(user.role),
+      isAuthenticated: Boolean(get().accessToken),
+      isLoading: false,
+    });
+  },
 
-      if (accessToken && userJson) {
-        const user = JSON.parse(userJson) as User;
-        const screen = getInitialScreen(user.role);
+  updateUser: async (data) => {
+    const currentUser = get().user;
+    if (!currentUser) return;
+    const updatedUser = { ...currentUser, ...data };
+    if (!isAuthUser(updatedUser)) throw new Error('Mise à jour du profil invalide.');
+    await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+    set({ user: updatedUser, initialScreen: getInitialScreen(updatedUser.role) });
+  },
 
-        set({
-          accessToken,
-          refreshToken,
-          user,
-          initialScreen: screen,
-          isAuthenticated: true,
-          isLoading: false, // ✅ Succès : fin du chargement
-        });
-      } else {
-        set({ isLoading: false }); // ✅ Pas de données : fin du chargement
+  setTokens: async (accessToken, refreshToken) => {
+    if (!accessToken?.trim() || !refreshToken?.trim()) {
+      throw new Error('Tokens MESSAY manquants.');
+    }
+    await AsyncStorage.multiSet([
+      ['accessToken', accessToken],
+      ['refreshToken', refreshToken],
+    ]);
+    set({
+      accessToken,
+      refreshToken,
+      isAuthenticated: Boolean(get().user),
+      isLoading: false,
+    });
+  },
+
+  logout: async () => {
+    const token = get().accessToken;
+    if (token) {
+      try {
+        await revokePushDeviceOnLogout(token);
+      } catch (error) {
+        // Une connexion indisponible ne doit pas empêcher la déconnexion.
+        console.warn('[MESSAY/PUSH] Révocation différée nécessaire :',
+          error instanceof Error ? error.message : 'Erreur réseau');
       }
-    } catch (error) {
-      console.error('Erreur chargement auth:', error);
-      set({ isLoading: false }); // ✅ Erreur : on force la fin du chargement
+    }
+    try {
+      await AsyncStorage.multiRemove([...KEYS]);
+    } finally {
+      set(EMPTY_AUTH);
     }
   },
 
-  clearInitialScreen: () => {
-    set({ initialScreen: null });
+  loadAuthData: async () => {
+    try {
+      const results = await AsyncStorage.multiGet([...KEYS]);
+      const values = Object.fromEntries(results) as Record<string, string | null>;
+      const { accessToken, refreshToken, user: userJson } = values;
+      if (!accessToken || !userJson) {
+        set(EMPTY_AUTH);
+        return;
+      }
+      const user: unknown = JSON.parse(userJson);
+      if (!isAuthUser(user)) {
+        await AsyncStorage.multiRemove([...KEYS]);
+        set(EMPTY_AUTH);
+        return;
+      }
+      set({
+        user,
+        accessToken,
+        refreshToken: refreshToken ?? null,
+        initialScreen: getInitialScreen(user.role),
+        isAuthenticated: true,
+        isLoading: false,
+      });
+    } catch (error) {
+      console.error('[MESSAY AUTH] Restauration impossible', error);
+      set(EMPTY_AUTH);
+    }
   },
+
+  clearInitialScreen: () => set({ initialScreen: null }),
 }));

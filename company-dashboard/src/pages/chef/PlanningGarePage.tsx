@@ -25,6 +25,7 @@ import {
 } from '../../services/garePlanningApi';
 
 import ChefBusAffectations from './ChefBusAffectations';
+import PlanningMensuelBus from './PlanningMensuelBus';
 
 type Panel = 'ligne' | 'tarif' | 'ajout' | 'modification' | 'delegation';
 
@@ -371,6 +372,16 @@ export default function PlanningGarePage() {
       {isChief && data && (
         <ChefBusAffectations
           key={gareId}
+          gareId={gareId}
+          gareName={stationName}
+          lignes={data.lignes}
+        />
+      )}
+
+      {/* Calendrier mensuel en lecture seule. */}
+      {isChief && data && (
+        <PlanningMensuelBus
+          key={`mensuel-${gareId}`}
           gareId={gareId}
           gareName={stationName}
           lignes={data.lignes}

@@ -15,7 +15,8 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { io } from 'socket.io-client';
+import { io, type Socket } from 'socket.io-client';
+import * as Location from 'expo-location';
 import { useAuthStore } from '../store/authStore';
 import api from '../services/api';
 import { courseService } from '../services/courseService';
@@ -24,17 +25,14 @@ import {
   conducteurDisponibiliteService,
   type DisponibiliteConducteur,
 } from '../services/conducteurDisponibiliteService';
-
 type Tab = 'ACTIVE' | 'HISTORY' | 'PAYMENTS';
 type Action = 'accepter' | 'demarrer' | 'terminer';
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
-
 const TABS: { key: Tab; label: string; icon: IconName; outline: IconName }[] = [
   { key: 'ACTIVE', label: 'Radar', icon: 'flash', outline: 'flash-outline' },
   { key: 'HISTORY', label: 'Historique', icon: 'time', outline: 'time-outline' },
   { key: 'PAYMENTS', label: 'Revenus', icon: 'wallet', outline: 'wallet-outline' },
 ];
-
 function getErrorMessage(error: unknown): string {
   if (error && typeof error === 'object') {
     const e = error as {
@@ -46,11 +44,9 @@ function getErrorMessage(error: unknown): string {
   }
   return 'Une erreur est survenue';
 }
-
 function formatMoney(amount: number): string {
   return `${Math.round(amount).toLocaleString('fr-FR')} FCFA`;
 }
-
 function getStatusColor(status: Course['statut']): string {
   switch (status) {
     case 'EN_ATTENTE': return '#64748B';
@@ -60,15 +56,13 @@ function getStatusColor(status: Course['statut']): string {
     default: return '#EF4444';
   }
 }
-
 function socketUrlFromApi(): string | null {
   const configured = process.env.EXPO_PUBLIC_SOCKET_URL?.trim();
   if (configured) return configured.replace(/\/+$/, '');
-
   const base = api.defaults.baseURL?.trim();
   if (!base) return null;
-  // api.ts définit déjà l'URL de l'API : il ne faut PAS coder en dur une autre IP.
-  return base.replace(/\/+$/, '').replace(/\/api\/?$/i, '');
+  // Utiliser la même origine que l'API, sans suffixe /api.
+  return base.replace(/\/+$/, '').replace(/\/api$/i, '');
 }
 
 export default function ConducteurCoursesScreen() {
@@ -82,36 +76,47 @@ export default function ConducteurCoursesScreen() {
   const [changingAvailability, setChangingAvailability] = useState(false);
   const [actionCourseId, setActionCourseId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
   const mountedRef = useRef(false);
+  const socketRef = useRef<Socket | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
   const actionInFlightRef = useRef(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
-
   const isDriver = isAuthenticated && user?.role === 'CONDUCTEUR';
   const isBusy = disponibilite?.statut === 'EN_COURSE' || courses.some(
     c => !!c.conducteurId && (c.statut === 'ACCEPTEE' || c.statut === 'EN_COURS'),
   );
   const isOnline = disponibilite?.isOnline === true && disponibilite.isVerified && !isBusy;
-
+  // Seules les courses attribuées au conducteur connecté peuvent être suivies.
+  // L'API getConducteurCourses() renvoie les courses de ce conducteur.
+  const activeCourseId = useMemo(
+    () => courses.find(c =>
+      !!c.conducteurId && (c.statut === 'ACCEPTEE' || c.statut === 'EN_COURS')
+    )?.id ?? null,
+    [courses],
+  );
   // Le backend est la source de vérité. La liste radar et l'historique ne sont pas la même API.
   const loadDashboard = useCallback(async (pullToRefresh = false): Promise<void> => {
     if (!isAuthenticated || user?.role !== 'CONDUCTEUR') return;
     const requestId = ++requestIdRef.current;
     if (pullToRefresh) setRefreshing(true);
-
     try {
-      const [status, mine, weekly] = await Promise.all([
+      const [status, mine] = await Promise.all([
         conducteurDisponibiliteService.get(),
         courseService.getConducteurCourses(),
+      ]);
+      const hasActiveRide = mine.some(c => c.statut === 'ACCEPTEE' || c.statut === 'EN_COURS');
+      const canSeeAvailable = status.isOnline === true && status.isVerified === true &&
+        status.statut !== 'EN_COURSE' && !hasActiveRide;
+      const [availableResult, statsResult] = await Promise.allSettled([
+        canSeeAvailable ? courseService.getAvailableCourses() : Promise.resolve([] as Course[]),
         courseService.getWeeklyStats(),
       ]);
-
-      const hasActiveRide = mine.some(c => c.statut === 'ACCEPTEE' || c.statut === 'EN_COURS');
-      const canSeeAvailable = status.isOnline && status.isVerified && !hasActiveRide;
-      const available = canSeeAvailable ? await courseService.getAvailableCourses() : [];
-
+      const available = availableResult.status === 'fulfilled' ? availableResult.value : [];
+      const weekly = statsResult.status === 'fulfilled' ? statsResult.value : null;
+      const availableError = availableResult.status === 'rejected'
+        ? 'Impossible de charger les nouvelles demandes. Réessayez.' : null;
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       const mineIds = new Set(mine.map(c => c.id));
       setCourses([
@@ -120,11 +125,13 @@ export default function ConducteurCoursesScreen() {
       ]);
       setDisponibilite(status);
       setStats(weekly);
-      setError(null);
+      setError(availableError);
     } catch (err) {
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       // Ne jamais afficher « En ligne » sur la base d'un état local périmé.
       setDisponibilite(null);
+      setCourses([]);
+      setStats(null);
       setError(getErrorMessage(err));
     } finally {
       if (mountedRef.current && requestId === requestIdRef.current) {
@@ -133,7 +140,6 @@ export default function ConducteurCoursesScreen() {
       }
     }
   }, [isAuthenticated, user?.role]);
-
   useEffect(() => {
     mountedRef.current = true;
     if (!authLoading && isDriver) {
@@ -150,7 +156,6 @@ export default function ConducteurCoursesScreen() {
       fadeAnim.stopAnimation();
     };
   }, [authLoading, isDriver, loadDashboard, fadeAnim]);
-
   useEffect(() => {
     pulseAnim.stopAnimation();
     if (!isOnline) {
@@ -164,19 +169,17 @@ export default function ConducteurCoursesScreen() {
     animation.start();
     return () => animation.stop();
   }, [isOnline, pulseAnim]);
-
   useEffect(() => {
     if (!isDriver || !accessToken) return;
     const url = socketUrlFromApi();
     if (!url) return;
-
     // Le serveur Socket.IO DOIT vérifier ce JWT avant d'autoriser ses salons.
     const socket = io(url, {
       auth: { token: accessToken },
       reconnection: true,
     });
+    socketRef.current = socket;
     const refresh = () => { void loadDashboard(); };
-
     // Ne jamais insérer directement un événement Socket.IO dans la liste des courses :
     // toujours recharger les données via l'API authentifiée.
     socket.on('connect', refresh);
@@ -186,13 +189,84 @@ export default function ConducteurCoursesScreen() {
     socket.on('status-changed', refresh);
     socket.on('course_finished', refresh);
     socket.on('course_accepted', refresh);
-    return () => { socket.removeAllListeners(); socket.disconnect(); };
+    socket.on('course_cancelled', refresh);
+    socket.on('course_annulee', refresh);
+    return () => {
+      if (socketRef.current === socket) socketRef.current = null;
+      socket.removeAllListeners();
+      socket.disconnect();
+    };
   }, [isDriver, accessToken, loadDashboard]);
+  // Géolocalisation au premier plan : démarre après acceptation et
+  // s'arrête après fin/annulation, changement de compte ou démontage.
+  // En arrière-plan, un service Expo TaskManager distinct est nécessaire.
+  useEffect(() => {
+    if (!isDriver || !accessToken || !activeCourseId) {
+      setGpsError(null);
+      return;
+    }
+
+    let cancelled = false;
+    let subscription: Location.LocationSubscription | null = null;
+    let lastSentAt = 0;
+    const courseId = activeCourseId;
+
+    const startGps = async (): Promise<void> => {
+      try {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (cancelled) return;
+        if (permission.status !== 'granted') {
+          setGpsError('Autorisez la localisation pour partager votre position pendant la course.');
+          return;
+        }
+
+        const servicesEnabled = await Location.hasServicesEnabledAsync();
+        if (cancelled) return;
+        if (!servicesEnabled) {
+          setGpsError('Activez le service de localisation du téléphone.');
+          return;
+        }
+
+        setGpsError(null);
+        const watcher = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            timeInterval: 3000,
+            distanceInterval: 5,
+          },
+          location => {
+            if (cancelled) return;
+            const socket = socketRef.current;
+            if (!socket?.connected) return;
+            const { latitude: lat, longitude: lng, accuracy } = location.coords;
+            if (
+              !Number.isFinite(lat) || !Number.isFinite(lng) ||
+              Math.abs(lat) > 90 || Math.abs(lng) > 180 ||
+              (accuracy !== null && accuracy > 100)
+            ) return;
+            const now = Date.now();
+            if (now - lastSentAt < 3000) return;
+            lastSentAt = now;
+            socket.emit('driver_location', { courseId, lat, lng });
+          },
+        );
+        if (cancelled) watcher.remove();
+        else subscription = watcher;
+      } catch (error) {
+        if (!cancelled) setGpsError(getErrorMessage(error));
+      }
+    };
+
+    void startGps();
+    return () => {
+      cancelled = true;
+      subscription?.remove();
+    };
+  }, [isDriver, accessToken, activeCourseId]);
 
   const onRefresh = useCallback(() => {
     void loadDashboard(true);
   }, [loadDashboard]);
-
   const toggleAvailability = async (): Promise<void> => {
     if (!disponibilite || changingAvailability || actionInFlightRef.current || isBusy) return;
     const next = !isOnline;
@@ -200,7 +274,6 @@ export default function ConducteurCoursesScreen() {
       Alert.alert('Compte en attente', 'Votre profil doit être validé par un administrateur.');
       return;
     }
-
     setChangingAvailability(true);
     try {
       const updated = await conducteurDisponibiliteService.set(next);
@@ -213,16 +286,21 @@ export default function ConducteurCoursesScreen() {
       if (mountedRef.current) setChangingAvailability(false);
     }
   };
-
   const handleAction = async (id: string, action: Action): Promise<void> => {
     if (actionInFlightRef.current || changingAvailability) return;
     actionInFlightRef.current = true;
     setActionCourseId(id);
-
     try {
-      if (action === 'accepter') await courseService.acceptCourse(id);
-      if (action === 'demarrer') await courseService.startCourse(id);
-      if (action === 'terminer') await courseService.completeCourse(id);
+      const result = action === 'accepter'
+        ? await courseService.acceptCourse(id)
+        : action === 'demarrer'
+          ? await courseService.startCourse(id)
+          : await courseService.completeCourse(id);
+      const expectedStatus = action === 'accepter' ? 'ACCEPTEE'
+        : action === 'demarrer' ? 'EN_COURS' : 'TERMINEE';
+      if (result.course?.id !== id || result.course?.statut !== expectedStatus) {
+        throw new Error('Le serveur n’a pas confirmé le changement de statut. Actualisez les courses.');
+      }
       await loadDashboard();
       Alert.alert('Succès', action === 'accepter'
         ? 'Course acceptée.'
@@ -235,7 +313,6 @@ export default function ConducteurCoursesScreen() {
       if (mountedRef.current) setActionCourseId(null);
     }
   };
-
   const callPassenger = async (phone: string): Promise<void> => {
     const sanitized = phone.replace(/[^\d+]/g, '');
     if (!sanitized) return;
@@ -245,14 +322,12 @@ export default function ConducteurCoursesScreen() {
       Alert.alert('Appel impossible', 'Votre appareil ne peut pas lancer cet appel.');
     }
   };
-
   const handleLogout = (): void => {
     Alert.alert('Déconnexion', 'Voulez-vous vraiment vous déconnecter ?', [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Déconnexion', style: 'destructive', onPress: () => { void logout(); } },
     ]);
   };
-
   const visibleCourses = useMemo(() => {
     if (activeTab === 'ACTIVE') {
       return courses.filter(c =>
@@ -263,7 +338,6 @@ export default function ConducteurCoursesScreen() {
     if (activeTab === 'HISTORY') return courses.filter(c => c.statut === 'TERMINEE' || c.statut === 'ANNULEE');
     return [];
   }, [activeTab, courses, isOnline]);
-
   const renderCourse = ({ item }: { item: Course }) => {
     const action: Action | null = item.statut === 'EN_ATTENTE' ? 'accepter'
       : item.statut === 'ACCEPTEE' ? 'demarrer'
@@ -274,7 +348,6 @@ export default function ConducteurCoursesScreen() {
       : action === 'demarrer' ? '#3B82F6' : '#10B981';
     const working = actionCourseId === item.id;
     const clientName = [item.user?.prenom, item.user?.nom].filter(Boolean).join(' ') || 'Client';
-
     return (
       <View style={styles.card}>
         <View style={styles.cardHeader}>
@@ -323,7 +396,6 @@ export default function ConducteurCoursesScreen() {
       </View>
     );
   };
-
   if (authLoading || (loading && isDriver)) {
     return (
       <View style={styles.loaderContainer}>
@@ -332,7 +404,6 @@ export default function ConducteurCoursesScreen() {
       </View>
     );
   }
-
   if (!isDriver) {
     return (
       <View style={styles.loaderContainer}>
@@ -340,12 +411,10 @@ export default function ConducteurCoursesScreen() {
       </View>
     );
   }
-
   const availabilityLabel = !disponibilite ? 'Statut indisponible'
     : !disponibilite.isVerified ? 'En attente de validation'
     : isBusy ? 'En course'
     : isOnline ? 'En ligne' : 'Hors ligne';
-
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
@@ -399,14 +468,18 @@ export default function ConducteurCoursesScreen() {
           </View>
         </SafeAreaView>
       </LinearGradient>
-
-      {error && (
+      {gpsError && (
+      <View style={styles.errorBox}>
+        <Ionicons name="location-outline" size={18} color="#991B1B" />
+        <Text style={styles.errorText}>{gpsError}</Text>
+      </View>
+    )}
+    {error && (
         <TouchableOpacity style={styles.errorBox} onPress={onRefresh}>
           <Ionicons name="warning-outline" size={18} color="#991B1B" />
           <Text style={styles.errorText}>{error} — Toucher pour réessayer</Text>
         </TouchableOpacity>
       )}
-
       {activeTab === 'PAYMENTS' ? (
         <View style={styles.revenuesContainer}>
           <View style={styles.revenueCard}>
@@ -465,7 +538,6 @@ export default function ConducteurCoursesScreen() {
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
   header: { paddingBottom: 20, borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },

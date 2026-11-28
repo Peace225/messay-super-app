@@ -18,6 +18,7 @@ import { verifyAccessToken } from './utils/jwt';
 import { authenticate, authorize } from './middleware/auth';
 import swaggerSpec from './config/swagger';
 import routes from './routes';
+import adminCompaniesRouter from './routes/adminCompanies.routes';
 import { interurbainCatalogueRouter } from './routes/interurbainCatalogue.routes';
 // MESSAY Mobile — réservations STAGING et PRODUCTION, routes séparées.
 import { interurbainReservationRouter } from './routes/interurbainReservation.routes';
@@ -364,7 +365,18 @@ if (process.env.NODE_ENV === 'development') {
   app.use('/api/interurbain', interurbainReservationRouter);
 } else if (process.env.NODE_ENV === 'production') {
   app.use('/api/interurbain', interurbainReservationProductionRouter);
-  // Contrat mobile connu ; HTTP 503 maintenu jusqu'aux migrations financières.
+}
+
+// Routes de paiement : montées en développement pour tester le routage,
+// l'authentification et le refus HTTP sans déclencher de transaction.
+// En production, les garde-fous internes du routeur conservent le contrôle.
+// Le routeur exige notamment NODE_ENV=production et ses flags de sécurité
+// avant toute initiation GeniusPay : ne pas activer ces flags pour les tests.
+// Monter avant le catalogue et avant le middleware 404.
+if (
+  process.env.NODE_ENV === 'development' ||
+  process.env.NODE_ENV === 'production'
+) {
   app.use('/api/interurbain', interurbainPaiementProductionRouter);
 }
 // Catalogue commun, en lecture seule, pour le mobile et les dashboards.
@@ -376,6 +388,8 @@ app.use('/api/interurbain', interurbainCatalogueRouter);
 // Monter AVANT le routeur général /api et les gestionnaires 404 / erreurs.
 app.use('/api/push', pushDevicesRouter);
 // Routes principales du backend.
+
+app.use('/api/admin/companies', adminCompaniesRouter);
 app.use('/api', routes);
 
 // ============================================================

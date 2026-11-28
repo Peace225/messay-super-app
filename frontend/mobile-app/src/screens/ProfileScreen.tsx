@@ -974,7 +974,7 @@ export default function ProfileScreen() {
             <MenuOptionPro
               icon="wallet"
               title="MESSAY Wallet"
-              sub="Gérer vos crédits et paiements"
+              sub="Service non encore activé"
               onPress={() =>
                 router.push('/paiement')
               }

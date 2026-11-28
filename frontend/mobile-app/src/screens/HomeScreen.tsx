@@ -21,6 +21,7 @@ import { useRouter } from 'expo-router';
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuthStore } from '../store/authStore';
+import MessaySearchModal from '../components/MessaySearchModal';
 
 // MESSAY • KINETIC MOTION EDITION | Expo SDK 58
 // Parallax 3D-like, carrousel piloté par le geste, lumière cinétique,
@@ -298,6 +299,7 @@ export default function HomeScreen() {
   const [currentSocialIndex, setCurrentSocialIndex] = useState(0);
   const [currentHeroIndex, setCurrentHeroIndex] = useState(0);
   const [showPopup, setShowPopup] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
 
   const heroBanners = useMemo(
     () => [
@@ -641,7 +643,7 @@ export default function HomeScreen() {
         <Reveal delay={160} style={styles.searchWrap} distance={20}>
           <MotionButton
             style={styles.searchShadow}
-            onPress={() => handleServicePress('/(tabs)/tricycle')}
+            onPress={() => { setShowPopup(false); setShowSearch(true); }}
             accessibilityLabel="Chercher un trajet"
           >
             <View style={styles.search}>
@@ -791,45 +793,22 @@ export default function HomeScreen() {
           </Animated.ScrollView>
 
           {/* Indicateurs sans saut brusque : leur taille suit exactement le mouvement du doigt. */}
-          <View style={styles.pagination}>
-            {heroBanners.map((_, index) => {
-              const inputRange = [
-                (index - 1) * HERO_ITEM_WIDTH,
-                index * HERO_ITEM_WIDTH,
-                (index + 1) * HERO_ITEM_WIDTH,
-              ];
-              const widthScale = heroScrollX.interpolate({
-                inputRange, outputRange: [0.35, 1, 0.35], extrapolate: 'clamp',
-              });
-              const opacity = heroScrollX.interpolate({
-                inputRange, outputRange: [0.4, 1, 0.4], extrapolate: 'clamp',
-              });
-              return (
-                <TouchableOpacity
-                  key={index}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Afficher l'offre ${index + 1}`}
-                  onPress={() => {
-                    manualSwipeUntilRef.current = Date.now() + 10000;
-                    heroScrollRef.current?.scrollTo({ x: index * HERO_ITEM_WIDTH, animated: true });
-                    heroIndexRef.current = index;
-                    setCurrentHeroIndex(index);
-                  }}
-                  hitSlop={10}
-                  style={styles.paginationHit}
-                >
-                  <View style={styles.paginationTrack}>
-                    <Animated.View style={[
-                      styles.paginationBar,
-                      reduceMotion
-                        ? { opacity: index === currentHeroIndex ? 1 : 0.35 }
-                        : { opacity, transform: [{ scaleX: widthScale }] },
-                    ]} />
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <View style={styles.container}>
+  <StatusBar barStyle="light-content" />
+
+  <LinearGradient
+    colors={['#E95320', '#FF6B35', '#FF9858']}
+    start={{ x: 0, y: 0 }}
+    end={{ x: 1, y: 1 }}
+    style={styles.header}
+  >
+    <SafeAreaView edges={['top']}>
+      {/* Logo MESSAY, slogan et profil */}
+    </SafeAreaView>
+  </LinearGradient>
+
+  {/* Le reste de l'accueil */}
+</View>
         </Reveal>
 
         {/* Services inchangés côté métier, visuellement revalorisés. */}
@@ -855,6 +834,12 @@ export default function HomeScreen() {
           <Text style={styles.footerHintText}>Voyagez avec MESSAY, simplement.</Text>
         </Reveal>
       </Animated.ScrollView>
+
+      <MessaySearchModal
+        visible={showSearch}
+        onClose={() => setShowSearch(false)}
+        onTricycle={() => handleServicePress('/(tabs)/tricycle')}
+      />
 
       {/* Modale Tricycle existante, animée. */}
       <Modal

@@ -17,6 +17,17 @@ type DepartProgrammeRow = {
   capacite_snapshot: number;
 };
 
+type HorairePrevisionnelRow = {
+  gare_id: string;
+  destination_id: string;
+  horaire_id: string;
+  date_depart: string;
+  heure_depart: string;
+  destination: string;
+  tarif_fcfa: number;
+  statut: 'PREVU_NON_CONFIRME';
+};
+
 function validIsoDate(value: string): boolean {
   if (!DATE_PATTERN.test(value)) return false;
   const parsed = new Date(`${value}T12:00:00.000Z`);
@@ -125,8 +136,60 @@ export async function getDepartsProgrammes(
       LIMIT 300
     `;
 
+    // Horaires publiés sans affectation de bus confirmée.
+    // Consultation uniquement : jamais réservables ni payables.
+    const horaires_previsionnels =
+      await prisma.$queryRaw<HorairePrevisionnelRow[]>`
+        SELECT
+          g.id::text AS gare_id,
+          d.id::text AS destination_id,
+          h.id::text AS horaire_id,
+          ${date}::date::text AS date_depart,
+          to_char(h.heure_depart::time, 'HH24:MI') AS heure_depart,
+          d.ville::text AS destination,
+          d.prix::integer AS tarif_fcfa,
+          'PREVU_NON_CONFIRME'::text AS statut
+        FROM public.destinations AS d
+        INNER JOIN public.gares AS g
+          ON g.id = d.gare_depart_id
+          AND g.company_id = d.company_id
+        INNER JOIN public.horaires AS h
+          ON h.destination_id = d.id
+        INNER JOIN public.companies AS c
+          ON c.id = d.company_id
+        WHERE d.company_id = ${companyId}::uuid
+          AND d.publie IS TRUE
+          AND c.is_active IS TRUE
+          AND c.is_verified IS TRUE
+          AND (${gareDepartId || null}::uuid IS NULL
+               OR g.id = ${gareDepartId || null}::uuid)
+          AND (${destinationId || null}::uuid IS NULL
+               OR d.id = ${destinationId || null}::uuid)
+          AND (
+            ${date}::date > (NOW() AT TIME ZONE 'Africa/Abidjan')::date
+            OR (
+              ${date}::date = (NOW() AT TIME ZONE 'Africa/Abidjan')::date
+              AND h.heure_depart::time >
+                (NOW() AT TIME ZONE 'Africa/Abidjan')::time
+            )
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM public.messay_bus_affectations AS a
+            WHERE a.company_id = d.company_id
+              AND a.gare_id = g.id
+              AND a.destination_id = d.id
+              AND a.horaire_id = h.id
+              AND a.date_depart = ${date}::date
+              AND UPPER(a.statut::text) IN ('PROGRAMME', 'PROGRAMMEE')
+          )
+        ORDER BY h.heure_depart::time, d.ville
+        LIMIT 300
+      `;
+
     res.status(200).json({
       departs,
+      horaires_previsionnels,
       disponibilite_confirmee: false,
       paiement_actif: false,
       billet_emis: false,

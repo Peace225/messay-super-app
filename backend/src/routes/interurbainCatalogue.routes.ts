@@ -61,9 +61,8 @@ interurbainCatalogueRouter.get('/catalogue', async (req: Request, res: Response)
   }
   try {
     const [companyRes, garesRes, destinationsRes] = await Promise.all([
-      // Le schéma réel de public.companies n'a pas de colonne is_active.
-      // La présence de l'enregistrement est vérifiée ; ne jamais inventer un statut.
-      db.from('companies').select('id,name').eq('id', companyId).maybeSingle(),
+      // Seules les compagnies actives et approuvées sont consultables.
+      db.from('companies').select('id,name').eq('id', companyId).eq('is_active', true).eq('is_verified', true).maybeSingle(),
       db.from('gares').select('id,nom,ville,adresse').eq('company_id', companyId)
         .order('ville', { ascending: true }).limit(201),
       // Filtrage par gare avant interrogation des horaires, pas après.

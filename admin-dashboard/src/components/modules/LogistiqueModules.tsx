@@ -1,516 +1,597 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { io } from 'socket.io-client';
+/// <reference types="vite/client" />
+/**
+ * MESSAY — Logistique (dashboard ADMIN)
+ *
+ * Contrat réellement présent dans backend/src/server.ts :
+ *   Socket.IO auth: { token: JWT_ADMIN }
+ *   tricycles:get-all  -> tricycles:list (100 véhicules max)
+ *   tickets:get-today  -> tickets:list   (100 billets max, créés aujourd'hui en UTC)
+ *
+ * Le serveur ne possède pas encore de handlers pour tricycle:register,
+ * tricycle:delete, tricycle:control ni position-updated. Aucune action de
+ * modification simulée n'est exposée dans ces modules.
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { io, type Socket } from 'socket.io-client';
 import {
-  MapPin, Battery, Gauge, User, Phone, TrendingUp,
-  Activity, Zap, Navigation, CheckCircle, Plus, X,
-  Trash2, Power, PowerOff, Wifi, WifiOff, AlertCircle,
-  Bus, Search, CreditCard, Smartphone, Banknote,
-  Building2
+  AlertCircle,
+  Battery,
+  Bike,
+  Building2,
+  Bus,
+  Clock3,
+  Download,
+  Gauge,
+  MapPin,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  Ticket,
+  UserRound,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 
-const socket = io('http://127.0.0.1:5000', {
-  transports: ['websocket'],
-  reconnection: true,
-  reconnectionDelay: 1000,
-  reconnectionAttempts: 5,
-});
+// Pour le développement : VITE_API_URL=http://localhost:5000/api
+//                       VITE_SOCKET_URL=http://localhost:5000
+const API_URL = (
+  import.meta.env.VITE_API_URL?.trim() ||
+  'https://messay-api.onrender.com/api'
+).replace(/\/+$/, '');
+const SOCKET_URL = (
+  import.meta.env.VITE_SOCKET_URL?.trim() || API_URL.replace(/\/api$/, '')
+).replace(/\/+$/, '');
+
+const REFRESH_MS = 30_000;
+
+type AdminModuleProps = {
+  /** Recommandé : JWT transmis depuis le store d'authentification ADMIN. */
+  accessToken?: string | null;
+};
 
 type TricycleComplet = {
   id: string;
   immatriculation: string;
-  chauffeur: string;
-  chauffeurTel: string;
-  status: 'DISPONIBLE' | 'EN_COURSE' | 'MAINTENANCE' | 'HORS_LIGNE';
-  batterie: number;
-  vitesse: number;
-  position: { lat: number; lng: number };
-  derniereActivite: string;
-  coursesAujourdhui: number;
-  distanceParcourue: number;
-  modele?: string;
-  annee?: number;
-  createdAt?: string;
+  chauffeur?: string | null;
+  chauffeurTel?: string | null;
+  status: string;
+  batterie?: number | null;
+  vitesse?: number | null;
+  position?: { lat?: number | null; lng?: number | null } | null;
+  derniereActivite?: string | null;
+  coursesAujourdhui?: number | null;
+  distanceParcourue?: number | null;
+  modele?: string | null;
+  annee?: number | null;
 };
 
 type TicketComplet = {
   id: string;
-  compagnie: 'UTB' | 'SOTRA' | 'AVS' | 'SBTA' | 'TCI' | 'STIF' | 'UTS';
+  compagnie: string;
   passager: string;
-  telephone: string;
-  trajet: string;
-  date: string;
-  heure: string;
-  prix: number;
-  siege: string;
-  paiement: 'MOBILE_MONEY' | 'ESPECES' | 'CARTE' | 'WAVE';
-  statut: 'VALIDE' | 'UTILISE' | 'ANNULE' | 'REMBOURSE' | 'PAYE' | 'RESERVE';
-  gareDepart: string;
-  gareArrivee: string;
+  telephone?: string | null;
+  trajet?: string | null;
+  date?: string | null; // Date du DÉPART, pas date de vente
+  heure?: string | null;
+  prix?: number | null;
+  siege?: string | null;
+  paiement?: string | null;
+  statut: string;
+  gareDepart?: string | null;
+  gareArrivee?: string | null;
 };
 
-export const TricyclesModule: React.FC = () => {
-  const [isConnected, setIsConnected] = useState(false);
-  const [tricycles, setTricycles] = useState<TricycleComplet[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showRegister, setShowRegister] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [filterStatus, setFilterStatus] = useState<'TOUS' | 'DISPONIBLE' | 'EN_COURSE' | 'MAINTENANCE' | 'HORS_LIGNE'>('TOUS');
+function tokenFromStorage(explicit?: string | null): string | null {
+  if (explicit?.trim()) return explicit.trim();
+  if (typeof window === 'undefined') return null;
 
-  const [formData, setFormData] = useState({
-    immatriculation: '',
-    chauffeur: '',
-    chauffeurTel: '',
-    modele: 'TVS King',
-    annee: new Date().getFullYear(),
-  });
+  // Compatibilité avec quelques persistances Zustand et clés usuelles.
+  // L'injection explicite de `accessToken` reste la solution recommandée.
+  for (const key of [
+    'accessToken', 'token', 'authToken',
+    'messay-admin-auth', 'admin-auth-storage', 'auth-storage',
+  ]) {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) continue;
+    if (raw.startsWith('eyJ')) return raw;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') continue;
+      const obj = parsed as Record<string, unknown>;
+      const state = obj.state && typeof obj.state === 'object'
+        ? (obj.state as Record<string, unknown>)
+        : obj;
+      const value = state.accessToken ?? state.token;
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    } catch {
+      // Autre format de clé : poursuivre la recherche.
+    }
+  }
+  return null;
+}
+
+function useAdminCollection<T>(
+  requestEvent: 'tricycles:get-all' | 'tickets:get-today',
+  responseEvent: 'tricycles:list' | 'tickets:list',
+  accessToken?: string | null,
+) {
+  const [items, setItems] = useState<T[]>([]);
+  const [connected, setConnected] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+
+  const refresh = useCallback(() => {
+    const socket = socketRef.current;
+    if (socket?.connected) {
+      socket.emit(requestEvent);
+    } else {
+      setError('Serveur temps réel indisponible. Vérifiez votre connexion administrateur.');
+    }
+  }, [requestEvent]);
 
   useEffect(() => {
+    const token = tokenFromStorage(accessToken);
+    if (!token) {
+      setLoading(false);
+      setConnected(false);
+      setError('Session ADMIN introuvable. Connectez-vous ou transmettez accessToken au composant.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    const socket = io(SOCKET_URL, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 1_000,
+      autoConnect: false,
+    });
+    socketRef.current = socket;
+    let responseTimer: number | null = null;
+    const clearResponseTimer = () => {
+      if (responseTimer !== null) {
+        window.clearTimeout(responseTimer);
+        responseTimer = null;
+      }
+    };
+
     const onConnect = () => {
-      setIsConnected(true);
+      setConnected(true);
       setError(null);
+      // Le backend vérifie le rôle dans chaque événement ADMIN.
       socket.emit('join-admin-panel');
-      socket.emit('tricycles:get-all');
+      socket.emit(requestEvent);
+      clearResponseTimer();
+      responseTimer = window.setTimeout(() => {
+        setLoading(false);
+        setError('Aucune réponse reçue. Vérifiez le rôle ADMIN et les événements Socket.IO du serveur.');
+      }, 12_000);
     };
-
     const onDisconnect = () => {
-      setIsConnected(false);
-      setError('Connexion perdue - Reconnexion...');
+      clearResponseTimer();
+      setConnected(false);
+      setLoading(false);
+      setError('Connexion temps réel interrompue. Reconnexion en cours…');
     };
-
-    const onConnectError = (err: any) => {
-      setError(`Erreur serveur: ${err.message}`);
+    const onConnectError = (reason: Error) => {
+      clearResponseTimer();
+      setConnected(false);
+      setLoading(false);
+      setError(`Connexion refusée : ${reason.message}. Vérifiez le JWT et le rôle ADMIN.`);
+    };
+    const onData = (payload: unknown) => {
+      clearResponseTimer();
+      if (!Array.isArray(payload)) {
+        setError('Réponse du serveur inattendue.');
+        setLoading(false);
+        return;
+      }
+      setItems(payload as T[]);
+      setLastUpdated(new Date());
+      setLoading(false);
+      setError(null);
+    };
+    const onServerError = (payload: unknown) => {
+      clearResponseTimer();
+      const message = payload && typeof payload === 'object' && 'message' in payload
+        ? String((payload as { message: unknown }).message)
+        : 'Impossible de récupérer les données.';
+      setError(message);
       setLoading(false);
     };
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('connect_error', onConnectError);
+    socket.on(responseEvent, onData);
+    socket.on('server:error', onServerError);
+    socket.connect();
 
-    socket.on('tricycles:list', (data: TricycleComplet[]) => {
-      setTricycles(data);
-      setLoading(false);
-      setError(null);
-    });
-
-    socket.on('position-updated', (update: any) => {
-      setTricycles(prev => prev.map(t =>
-        t.id === update.tricycleId
-       ? {...t, position: { lat: update.lat, lng: update.lng }, vitesse: update.vitesse?? t.vitesse, batterie: update.batterie?? Math.max(0, t.batterie - 0.1), derniereActivite: 'À l\'instant', status: 'EN_COURSE' as const }
-          : t
-      ));
-    });
-
-    socket.on('tricycle:registered', (newTri: TricycleComplet) => {
-      setTricycles(prev => [newTri,...prev]);
-      setShowRegister(false);
-      setFormData({ immatriculation: '', chauffeur: '', chauffeurTel: '', modele: 'TVS King', annee: new Date().getFullYear() });
-    });
-
-    socket.on('tricycle:deleted', ({ id, success }) => {
-      if (success) setTricycles(prev => prev.filter(t => t.id!== id));
-    });
-
-    socket.on('tricycle:status-changed', (update) => {
-      setTricycles(prev => prev.map(t =>
-        t.id === update.tricycleId? {...t, status: update.status, derniereActivite: new Date(update.timestamp).toLocaleTimeString('fr-FR') } : t
-      ));
-    });
-
-    if (!socket.connected) socket.connect(); else onConnect();
+    // Le backend renvoie les listes sur demande ; aucun événement de mise
+    // à jour globale des véhicules/billets n'est diffusé actuellement.
+    const interval = window.setInterval(() => {
+      if (socket.connected) socket.emit(requestEvent);
+    }, REFRESH_MS);
 
     return () => {
+      clearResponseTimer();
+      window.clearInterval(interval);
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('connect_error', onConnectError);
-      socket.off('tricycles:list');
-      socket.off('position-updated');
-      socket.off('tricycle:registered');
-      socket.off('tricycle:deleted');
-      socket.off('tricycle:status-changed');
+      socket.off(responseEvent, onData);
+      socket.off('server:error', onServerError);
+      socket.disconnect();
+      if (socketRef.current === socket) socketRef.current = null;
     };
-  }, []);
+  }, [requestEvent, responseEvent, accessToken]);
 
-  const handleRegister = useCallback(() => {
-    if (!formData.immatriculation.trim() ||!formData.chauffeur.trim()) {
-      setError('Immatriculation et chauffeur requis');
-      return;
-    }
-    if (!isConnected) {
-      setError('Non connecté au serveur');
-      return;
-    }
-    socket.emit('tricycle:register', {
-      immatriculation: formData.immatriculation.toUpperCase().trim(),
-      chauffeur: formData.chauffeur.trim(),
-      chauffeurTel: formData.chauffeurTel.trim(),
-      modele: formData.modele,
-      annee: formData.annee,
-    });
-  }, [formData, isConnected]);
+  return { items, connected, loading, error, lastUpdated, refresh };
+}
 
-  const handleDelete = useCallback((id: string, immat: string) => {
-    if (!confirm(`Supprimer le tricycle ${immat}?`)) return;
-    socket.emit('tricycle:delete', { id });
-  }, []);
+function formatNumber(value: unknown, digits = 0): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value.toLocaleString('fr-FR', { maximumFractionDigits: digits })
+    : '—';
+}
 
-  const handleControl = useCallback((id: string, action: 'activate' | 'deactivate' | 'maintenance') => {
-    socket.emit('tricycle:control', { tricycleId: id, action });
-  }, []);
+function formatDate(value?: string | null): string {
+  if (!value) return 'Non renseignée';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString('fr-FR', { timeZone: 'Africa/Abidjan' });
+}
 
-  const filtered = useMemo(() =>
-    filterStatus === 'TOUS'? tricycles : tricycles.filter(t => t.status === filterStatus),
-    [tricycles, filterStatus]
-  );
+function formatActivity(value?: string | null): string {
+  if (!value) return 'Non renseignée';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString('fr-FR', { timeZone: 'Africa/Abidjan' });
+}
 
-  const stats = useMemo(() => ({
-    total: tricycles.length,
-    disponibles: tricycles.filter(t => t.status === 'DISPONIBLE').length,
-    enCourse: tricycles.filter(t => t.status === 'EN_COURSE').length,
-    maintenance: tricycles.filter(t => t.status === 'MAINTENANCE').length,
-    horsLigne: tricycles.filter(t => t.status === 'HORS_LIGNE').length,
-  }), [tricycles]);
-
-  const getStatus = (s: string) => {
-    const map = {
-      DISPONIBLE: { bg: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
-      EN_COURSE: { bg: 'bg-orange-50 text-orange-700 border-orange-200', dot: 'bg-orange-500' },
-      MAINTENANCE: { bg: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
-      HORS_LIGNE: { bg: 'bg-gray-100 text-gray-600 border-gray-200', dot: 'bg-gray-400' },
-    };
-    return map[s as keyof typeof map] || map.HORS_LIGNE;
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-3 border-orange-200 border-t-orange-600 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-900 font-medium">Connexion au serveur...</p>
-        </div>
-      </div>
-    );
-  }
-
+function ConnectionState({ connected, lastUpdated }: { connected: boolean; lastUpdated: Date | null }) {
   return (
-    <div className="min-h-screen bg-gray-50">
-      {!isConnected && (
-        <div className="bg-red-600 text-white px-4 py-2 text-sm flex items-center justify-center gap-2">
-          <WifiOff size={16} /> Déconnecté - Reconnexion...
-        </div>
-      )}
-      {error && (
-        <div className="bg-amber-500 text-white px-4 py-2 text-sm flex items-center justify-center gap-2">
-          <AlertCircle size={16} /> {error}
-        </div>
-      )}
-
-      <div className="p-6">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-orange-100">
-                <Navigation size={20} className="text-orange-600" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-black text-gray-900">Flotte Tricycles • LIVE</h1>
-                <p className="text-sm text-gray-500 flex items-center gap-2">
-                  {stats.total} véhicules
-                  <span className={`w-1.5 h-1.5 rounded-full ${isConnected? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-                  {isConnected? 'Temps réel actif' : 'Hors ligne'}
-                </p>
-              </div>
-            </div>
-            <button onClick={() => setShowRegister(true)} disabled={!isConnected} className="flex items-center gap-2 px-4 py-2.5 bg-gray-900 text-white rounded-xl font-bold text-sm hover:bg-black disabled:opacity-50">
-              <Plus size={16} /> Enregistrer
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            {[
-              { label: 'Total', value: stats.total, color: 'text-gray-900' },
-              { label: 'Disponibles', value: stats.disponibles, color: 'text-emerald-600' },
-              { label: 'En course', value: stats.enCourse, color: 'text-orange-600' },
-              { label: 'Maintenance', value: stats.maintenance, color: 'text-amber-600' },
-              { label: 'Hors ligne', value: stats.horsLigne, color: 'text-gray-500' },
-            ].map((s) => (
-              <div key={s.label} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
-                <p className="text-xs text-gray-500 uppercase font-bold">{s.label}</p>
-                <p className={`text-3xl font-black mt-1.5 ${s.color}`}>{s.value}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex gap-2 overflow-x-auto">
-            {(['TOUS', 'DISPONIBLE', 'EN_COURSE', 'MAINTENANCE', 'HORS_LIGNE'] as const).map(f => {
-              const count = f === 'TOUS'? stats.total : tricycles.filter(t => t.status === f).length;
-              return (
-                <button key={f} onClick={() => setFilterStatus(f)} className={`px-4 py-2.5 rounded-xl text-sm font-bold border ${filterStatus === f? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}>
-                  {f.replace('_', ' ')} <span className="opacity-60">({count})</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {filtered.map((tri) => {
-              const st = getStatus(tri.status);
-              const isLive = tri.derniereActivite === 'À l\'instant' || tri.status === 'EN_COURSE';
-              return (
-                <div key={tri.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:shadow-lg transition-all">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-lg font-black text-gray-900">{tri.immatriculation}</h3>
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text- font-bold border ${st.bg}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${st.dot} ${isLive? 'animate-pulse' : ''}`} />
-                          {tri.status.replace('_', ' ')}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-900 font-medium flex items-center gap-1.5 mt-2">
-                        <User size={13} className="text-gray-400" />{tri.chauffeur}
-                      </p>
-                      <p className="text-xs text-gray-500 flex items-center gap-3">
-                        <span className="flex items-center gap-1"><Phone size={11} />{tri.chauffeurTel}</span>
-                        {tri.modele && <span>• {tri.modele}</span>}
-                      </p>
-                    </div>
-                    <div className="flex gap-1 ml-2">
-                      <button onClick={() => handleControl(tri.id, tri.status === 'HORS_LIGNE'? 'activate' : 'deactivate')} className="p-2 hover:bg-gray-100 rounded-lg">
-                        {tri.status === 'HORS_LIGNE'? <Power size={15} className="text-emerald-600" /> : <PowerOff size={15} className="text-gray-400" />}
-                      </button>
-                      <button onClick={() => handleDelete(tri.id, tri.immatriculation)} className="p-2 hover:bg-red-50 rounded-lg">
-                        <Trash2 size={15} className="text-gray-400 hover:text-red-600" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2.5 mb-4">
-                    {[
-                      { label: 'BATT', value: `${tri.batterie}%`, icon: Battery, color: tri.batterie > 30? 'text-emerald-600' : 'text-red-600' },
-                      { label: 'VIT', value: tri.vitesse, suffix: 'km/h', icon: Gauge, color: 'text-gray-900' },
-                      { label: 'COURSES', value: tri.coursesAujourdhui, icon: TrendingUp, color: 'text-gray-900' },
-                    ].map((m) => (
-                      <div key={m.label} className="bg-gray-50 rounded-xl p-3 text-center border border-gray-100">
-                        <m.icon size={14} className={`mx-auto mb-1 ${m.color}`} />
-                        <p className={`text-lg font-black ${m.color}`}>{m.value}</p>
-                        <p className="text- text-gray-500 font-bold uppercase mt-0.5">{m.label}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="space-y-2 pt-3 border-t border-gray-100">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <MapPin size={12} className="text-gray-400" />
-                        <span className="text-xs font-mono text-gray-600">{tri.position.lat.toFixed(5)}, {tri.position.lng.toFixed(5)}</span>
-                      </div>
-                      <span className="text-xs text-gray-500">{tri.distanceParcourue.toFixed(1)} km</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text- text-gray-400">Dernière activité</span>
-                      <span className={`text-xs font-medium ${isLive? 'text-emerald-600' : 'text-gray-500'}`}>{tri.derniereActivite}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* MODAL ENREGISTREMENT */}
-      {showRegister && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
-            <div className="flex items-center justify-between p-5 border-b border-gray-200">
-              <div>
-                <h3 className="text-lg font-black text-gray-900">Nouveau tricycle</h3>
-                <p className="text-xs text-gray-500 mt-0.5">Enregistrement en temps réel</p>
-              </div>
-              <button onClick={() => setShowRegister(false)} className="p-2 hover:bg-gray-100 rounded-xl">
-                <X size={18} className="text-gray-500" />
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="text-xs font-bold text-gray-700 uppercase tracking-wide">Immatriculation *</label>
-                <input
-                  type="text"
-                  value={formData.immatriculation}
-                  onChange={e => setFormData({...formData, immatriculation: e.target.value.toUpperCase() })}
-                  placeholder="4521 AB"
-                  className="w-full mt-1.5 h-11 px-3.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-gray-700 uppercase tracking-wide">Nom chauffeur *</label>
-                <input
-                  type="text"
-                  value={formData.chauffeur}
-                  onChange={e => setFormData({...formData, chauffeur: e.target.value })}
-                  placeholder="Moussa Koné"
-                  className="w-full mt-1.5 h-11 px-3.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-gray-700 uppercase tracking-wide">Téléphone</label>
-                <input
-                  type="tel"
-                  value={formData.chauffeurTel}
-                  onChange={e => setFormData({...formData, chauffeurTel: e.target.value })}
-                  placeholder="+225 07 00 00 00"
-                  className="w-full mt-1.5 h-11 px-3.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-gray-700 uppercase tracking-wide">Modèle</label>
-                  <select value={formData.modele} onChange={e => setFormData({...formData, modele: e.target.value })} className="w-full mt-1.5 h-11 px-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-orange-500">
-                    <option>TVS King</option>
-                    <option>Bajaj RE</option>
-                    <option>Piaggio Ape</option>
-                    <option>Autre</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-700 uppercase tracking-wide">Année</label>
-                  <input type="number" min="2015" max={new Date().getFullYear() + 1} value={formData.annee} onChange={e => setFormData({...formData, annee: parseInt(e.target.value) || new Date().getFullYear() })} className="w-full mt-1.5 h-11 px-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-orange-500" />
-                </div>
-              </div>
-
-              <div className="bg-orange-50 border border-orange-200 rounded-xl p-3.5">
-                <div className="flex items-start gap-2.5">
-                  <div className="p-1.5 bg-orange-100 rounded-lg mt-0.5">
-                    <Wifi size={14} className="text-orange-600" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-xs font-bold text-orange-900">Connexion temps réel</p>
-                    <p className="text- text-orange-700 mt-1">Le tricycle apparaîtra instantanément dans la flotte.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-3 p-5 border-t border-gray-200 bg-gray-50 rounded-b-2xl">
-              <button onClick={() => setShowRegister(false)} className="flex-1 h-11 rounded-xl bg-white border border-gray-200 text-gray-700 font-bold hover:bg-gray-50">Annuler</button>
-              <button onClick={handleRegister} disabled={!formData.immatriculation.trim() ||!formData.chauffeur.trim() ||!isConnected} className="flex-1 h-11 rounded-xl bg-gray-900 text-white font-bold hover:bg-black disabled:opacity-30 flex items-center justify-center gap-2">
-                <CheckCircle size={16} /> Enregistrer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+    <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold ${
+      connected ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+        : 'border-gray-200 bg-gray-100 text-gray-600'
+    }`}>
+      {connected ? <Wifi size={15} /> : <WifiOff size={15} />}
+      <span>{connected ? 'Connecté' : 'Déconnecté'}</span>
+      {lastUpdated && <span className="font-normal">· Actualisé à {lastUpdated.toLocaleTimeString('fr-FR', { timeZone: 'Africa/Abidjan' })}</span>}
     </div>
   );
-};
+}
 
-export const BusTicketsModule: React.FC = () => {
-  const [tickets, setTickets] = useState<TicketComplet[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCompagnie, setSelectedCompagnie] = useState<'TOUTES' | 'UTB' | 'SOTRA' | 'AVS' | 'SBTA' | 'TCI' | 'STIF'>('TOUTES');
+function ErrorBanner({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <div role="alert" className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      <AlertCircle size={18} className="mt-0.5 shrink-0" />
+      <span>{message}</span>
+    </div>
+  );
+}
 
-  useEffect(() => {
-    socket.emit('tickets:get-today');
-    socket.on('tickets:list', (data: TicketComplet[]) => {
-      setTickets(data);
-      setLoading(false);
-    });
-    return () => { socket.off('tickets:list'); };
-  }, []);
+function getStatusStyle(status: string): string {
+  switch (status) {
+    case 'DISPONIBLE': return 'bg-emerald-50 border-emerald-200 text-emerald-700';
+    case 'EN_COURSE': return 'bg-orange-50 border-orange-200 text-orange-700';
+    case 'MAINTENANCE': return 'bg-amber-50 border-amber-200 text-amber-700';
+    case 'HORS_LIGNE': return 'bg-gray-100 border-gray-200 text-gray-600';
+    default: return 'bg-blue-50 border-blue-200 text-blue-700';
+  }
+}
 
-  const filtered = useMemo(() => tickets.filter(t => {
-    const matchComp = selectedCompagnie === 'TOUTES' || t.compagnie === selectedCompagnie;
-    const matchSearch =!searchTerm || t.passager.toLowerCase().includes(searchTerm.toLowerCase()) || t.telephone.includes(searchTerm);
-    return matchComp && matchSearch;
-  }), [tickets, selectedCompagnie, searchTerm]);
+// ============================================================
+// MODULE FLOTTES TRICYCLES
+// ============================================================
 
-  const getPaiement = (p: string) => {
-    const map = {
-      MOBILE_MONEY: { icon: Smartphone, color: 'text-orange-600 bg-orange-50', label: 'MoMo' },
-      WAVE: { icon: Zap, color: 'text-blue-600 bg-blue-50', label: 'Wave' },
-      CARTE: { icon: CreditCard, color: 'text-violet-600 bg-violet-50', label: 'Carte' },
-      ESPECES: { icon: Banknote, color: 'text-emerald-600 bg-emerald-50', label: 'Espèces' }
-    };
-    return map[p as keyof typeof map] || map.ESPECES;
-  };
+export function TricyclesModule({ accessToken }: AdminModuleProps) {
+  const { items: tricycles, connected, loading, error, lastUpdated, refresh } =
+    useAdminCollection<TricycleComplet>('tricycles:get-all', 'tricycles:list', accessToken);
+  const [status, setStatus] = useState('TOUS');
+  const [query, setQuery] = useState('');
 
-  if (loading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><div className="w-12 h-12 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin" /></div>;
+  const statuses = useMemo(() => Array.from(new Set(tricycles.map(t => t.status))).sort(), [tricycles]);
+  const filtered = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    return tricycles.filter(t =>
+      (status === 'TOUS' || t.status === status) &&
+      (!search || [t.immatriculation, t.chauffeur, t.chauffeurTel, t.modele]
+        .some(v => (v ?? '').toLowerCase().includes(search)))
+    );
+  }, [tricycles, status, query]);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-blue-100"><Bus size={20} className="text-blue-600" /></div>
-            <div>
-              <h1 className="text-2xl font-black text-gray-900">Tickets Bus • LIVE</h1>
-              <p className="text-sm text-gray-500">{tickets.length} vendus</p>
-            </div>
+    <section className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="flex items-center gap-2 text-2xl font-black text-gray-900">
+              <Bike className="text-orange-600" /> Flotte des tricycles
+            </h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Données PostgreSQL via Socket.IO · jusqu'à 100 véhicules par chargement
+            </p>
           </div>
-          <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-xl">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            <span className="text-xs font-bold text-green-700">TEMPS RÉEL</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <ConnectionState connected={connected} lastUpdated={lastUpdated} />
+            <button type="button" onClick={refresh} disabled={!connected}
+              className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-50">
+              <RefreshCw size={16} /> Actualiser
+            </button>
+          </div>
+        </header>
+        <ErrorBanner message={error} />
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            { label: 'Véhicules chargés', count: tricycles.length },
+            { label: 'Disponibles', count: tricycles.filter(t => t.status === 'DISPONIBLE').length },
+            { label: 'En course', count: tricycles.filter(t => t.status === 'EN_COURSE').length },
+            { label: 'Maintenance', count: tricycles.filter(t => t.status === 'MAINTENANCE').length },
+          ].map(s => (
+            <div key={s.label} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase text-gray-500">{s.label}</p>
+              <p className="mt-2 text-3xl font-black text-gray-900">{s.count}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          <div className="flex items-start gap-2">
+            <ShieldAlert size={18} className="mt-0.5 shrink-0" />
+            <p>
+              Le serveur permet actuellement de consulter la flotte, mais n'expose pas les
+              événements d'enregistrement, de suppression ou de commande des tricycles.
+              Ces actions ne sont donc pas simulées ici. La vitesse et la dernière activité
+              sont les dernières valeurs enregistrées, pas une preuve de mouvement instantané.
+            </p>
           </div>
         </div>
 
-        <div className="flex gap-3">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-            <input type="text" placeholder="Rechercher..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-11 pl-10 pr-4 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-blue-500" />
-          </div>
-          <select value={selectedCompagnie} onChange={e => setSelectedCompagnie(e.target.value as any)} className="h-11 px-4 bg-white border border-gray-200 rounded-xl text-sm">
-            <option value="TOUTES">Toutes</option>
-            <option value="UTB">UTB</option>
-            <option value="SOTRA">SOTRA</option>
-            <option value="AVS">AVS</option>
-            <option value="SBTA">SBTA</option>
-            <option value="TCI">TCI</option>
+        <div className="flex flex-wrap gap-3">
+          <label className="relative min-w-[230px] flex-1">
+            <Search size={17} className="absolute left-3 top-3 text-gray-400" />
+            <input value={query} onChange={e => setQuery(e.target.value)}
+              placeholder="Immatriculation, conducteur, modèle…"
+              aria-label="Rechercher un tricycle"
+              className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-3 text-sm outline-none focus:border-orange-500" />
+          </label>
+          <select value={status} onChange={e => setStatus(e.target.value)}
+            aria-label="Filtrer les tricycles par statut"
+            className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm">
+            <option value="TOUS">Tous les statuts</option>
+            {statuses.map(value => <option key={value} value={value}>{value.replace(/_/g, ' ')}</option>)}
           </select>
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+        {loading ? (
+          <p className="rounded-xl border bg-white p-8 text-center text-gray-500">Chargement de la flotte…</p>
+        ) : !lastUpdated ? (
+          <p className="rounded-xl border bg-white p-8 text-center text-gray-500">Aucune liste de véhicules reçue.</p>
+        ) : filtered.length === 0 ? (
+          <p className="rounded-xl border bg-white p-8 text-center text-gray-500">Aucun véhicule correspondant.</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {filtered.map(tri => {
+              const lat = tri.position?.lat;
+              const lng = tri.position?.lng;
+              const hasPosition = typeof lat === 'number' && Number.isFinite(lat) &&
+                typeof lng === 'number' && Number.isFinite(lng);
+              return (
+                <article key={tri.id} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h2 className="font-black text-gray-900">{tri.immatriculation || 'Sans immatriculation'}</h2>
+                      <p className="mt-1 text-xs text-gray-500">{tri.modele || 'Modèle non renseigné'}{tri.annee ? ` · ${tri.annee}` : ''}</p>
+                    </div>
+                    <span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${getStatusStyle(tri.status)}`}>
+                      {tri.status.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                  <div className="mt-4 space-y-2 text-sm text-gray-700">
+                    <p className="flex items-center gap-2"><UserRound size={15} /> {tri.chauffeur || 'Conducteur non assigné'}</p>
+                    {tri.chauffeurTel && <p className="text-xs text-gray-500">Téléphone : {tri.chauffeurTel}</p>}
+                    <div className="grid grid-cols-3 gap-2 pt-2">
+                      <div className="rounded-xl bg-gray-50 p-2 text-center">
+                        <Battery size={16} className="mx-auto text-orange-600" />
+                        <strong className="mt-1 block text-sm">{formatNumber(tri.batterie)} %</strong>
+                        <span className="text-[10px] text-gray-500">Batterie</span>
+                      </div>
+                      <div className="rounded-xl bg-gray-50 p-2 text-center">
+                        <Gauge size={16} className="mx-auto text-orange-600" />
+                        <strong className="mt-1 block text-sm">{formatNumber(tri.vitesse, 1)}</strong>
+                        <span className="text-[10px] text-gray-500">km/h enregistré</span>
+                      </div>
+                      <div className="rounded-xl bg-gray-50 p-2 text-center">
+                        <Bike size={16} className="mx-auto text-orange-600" />
+                        <strong className="mt-1 block text-sm">{formatNumber(tri.coursesAujourdhui)}</strong>
+                        <span className="text-[10px] text-gray-500">Courses du jour</span>
+                      </div>
+                    </div>
+                    <p className="flex items-center gap-2 border-t pt-3 text-xs text-gray-600">
+                      <MapPin size={15} /> {hasPosition ? `${lat!.toFixed(5)}, ${lng!.toFixed(5)}` : 'Position GPS non renseignée'}
+                    </p>
+                    <p className="flex items-center gap-2 text-xs text-gray-500">
+                      <Clock3 size={15} /> Dernière activité : {formatActivity(tri.derniereActivite)}
+                    </p>
+                    {typeof tri.distanceParcourue === 'number' && (
+                      <p className="text-xs text-gray-500">Distance enregistrée : {formatNumber(tri.distanceParcourue, 1)} km</p>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ============================================================
+// MODULE BILLETTERIE INTERURBAINE
+// ============================================================
+
+function csvValue(value: unknown): string {
+  let text = value == null ? '' : String(value);
+  // Évite d'injecter des formules quand le CSV est ouvert dans Excel.
+  if (/^[\s]*[=+@\-\t\r]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function downloadTickets(tickets: TicketComplet[]) {
+  const rows: unknown[][] = [
+    ['Billet', 'Compagnie', 'Passager', 'Téléphone', 'Trajet', 'Date départ', 'Heure départ', 'Siège', 'Prix FCFA', 'Paiement', 'Statut'],
+    ...tickets.map(t => [t.id, t.compagnie, t.passager, t.telephone ?? '', t.trajet ?? '', t.date ?? '', t.heure ?? '', t.siege ?? '', t.prix ?? '', t.paiement ?? '', t.statut]),
+  ];
+  const csv = '\uFEFF' + rows.map(row => row.map(csvValue).join(';')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `messay-billets-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+export function BusTicketsModule({ accessToken }: AdminModuleProps) {
+  const { items: tickets, connected, loading, error, lastUpdated, refresh } =
+    useAdminCollection<TicketComplet>('tickets:get-today', 'tickets:list', accessToken);
+  const [query, setQuery] = useState('');
+  const [compagnie, setCompagnie] = useState('TOUTES');
+
+  const compagnies = useMemo(() => Array.from(new Set(tickets.map(t => t.compagnie).filter(Boolean))).sort(), [tickets]);
+  const filtered = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    return tickets.filter(t =>
+      (compagnie === 'TOUTES' || t.compagnie === compagnie) &&
+      (!search || [t.passager, t.telephone, t.trajet, t.id]
+        .some(v => (v ?? '').toLowerCase().includes(search)))
+    );
+  }, [tickets, compagnie, query]);
+  const paidCount = tickets.filter(t => ['PAYE', 'VALIDE', 'UTILISE'].includes(t.statut)).length;
+
+  return (
+    <section className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="flex items-center gap-2 text-2xl font-black text-gray-900">
+              <Bus className="text-blue-600" /> Billetterie interurbaine
+            </h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Billets créés aujourd'hui (UTC) · maximum 100 billets renvoyés par le backend
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <ConnectionState connected={connected} lastUpdated={lastUpdated} />
+            <button type="button" onClick={refresh} disabled={!connected}
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+              <RefreshCw size={16} /> Actualiser
+            </button>
+            <button type="button" onClick={() => downloadTickets(filtered)} disabled={!filtered.length}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
+              <Download size={16} /> Exporter CSV
+            </button>
+          </div>
+        </header>
+        <ErrorBanner message={error} />
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <Ticket className="text-blue-700" size={20} />
+            <p className="mt-2 text-xs font-semibold uppercase text-gray-500">Billets chargés</p>
+            <p className="mt-1 text-3xl font-black">{tickets.length}</p>
+          </div>
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <Bus className="text-emerald-600" size={20} />
+            <p className="mt-2 text-xs font-semibold uppercase text-gray-500">Statuts payés / validés / utilisés</p>
+            <p className="mt-1 text-3xl font-black">{paidCount}</p>
+          </div>
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <Building2 className="text-orange-600" size={20} />
+            <p className="mt-2 text-xs font-semibold uppercase text-gray-500">Compagnies représentées</p>
+            <p className="mt-1 text-3xl font-black">{compagnies.length}</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <label className="relative min-w-[230px] flex-1">
+            <Search size={17} className="absolute left-3 top-3 text-gray-400" />
+            <input value={query} onChange={e => setQuery(e.target.value)}
+              placeholder="Passager, téléphone, trajet, identifiant…"
+              aria-label="Rechercher un billet"
+              className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-3 text-sm outline-none focus:border-blue-500" />
+          </label>
+          <select value={compagnie} onChange={e => setCompagnie(e.target.value)}
+            aria-label="Filtrer les billets par compagnie"
+            className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm">
+            <option value="TOUTES">Toutes les compagnies</option>
+            {compagnies.map(value => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+            <table className="w-full min-w-[990px] text-left text-sm">
+              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                 <tr>
-                  {['Ticket', 'Passager', 'Compagnie', 'Trajet', 'Date', 'Paiement', 'Prix', 'Statut'].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase">{h}</th>
+                  {['Billet', 'Passager', 'Compagnie', 'Trajet', 'Départ', 'Siège', 'Paiement', 'Montant', 'Statut'].map(label => (
+                    <th key={label} className="px-4 py-3 font-bold">{label}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filtered.map((t) => {
-                  const paiement = getPaiement(t.paiement);
-                  const Icon = paiement.icon;
-                  return (
-                    <tr key={t.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3"><p className="text-xs font-mono font-bold text-blue-600">{t.id.slice(0,8)}</p><p className="text- text-gray-500">Siège {t.siege}</p></td>
-                      <td className="px-4 py-3"><p className="text-sm font-medium">{t.passager}</p><p className="text-xs text-gray-500">{t.telephone}</p></td>
-                      <td className="px-4 py-3"><span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 rounded-lg text-xs font-bold"><Building2 size={12} />{t.compagnie}</span></td>
-                      <td className="px-4 py-3"><p className="text-sm">{t.trajet}</p><p className="text-xs text-gray-500">{t.gareDepart} → {t.gareArrivee}</p></td>
-                      <td className="px-4 py-3"><p className="text-xs">{t.date}</p><p className="text-xs text-gray-500">{t.heure}</p></td>
-                      <td className="px-4 py-3"><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold ${paiement.color}`}><Icon size={12} />{paiement.label}</span></td>
-                      <td className="px-4 py-3 text-right"><p className="text-sm font-black">{t.prix.toLocaleString('fr-FR')} F</p></td>
-                      <td className="px-4 py-3 text-center"><span className={`px-2.5 py-1 rounded-full text- font-bold ${t.statut === 'VALIDE' || t.statut === 'PAYE'? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>{t.statut}</span></td>
-                    </tr>
-                  );
-                })}
+                {filtered.map(t => (
+                  <tr key={t.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-mono text-xs text-blue-700">{t.id.slice(0, 8)}</td>
+                    <td className="px-4 py-3">
+                      <p className="font-semibold text-gray-900">{t.passager || 'Non renseigné'}</p>
+                      <p className="text-xs text-gray-500">{t.telephone || 'Téléphone non renseigné'}</p>
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-gray-700">{t.compagnie}</td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium">{t.trajet || 'Trajet non renseigné'}</p>
+                      <p className="text-xs text-gray-500">{[t.gareDepart, t.gareArrivee].filter(Boolean).join(' → ')}</p>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <p>{formatDate(t.date)}</p>
+                      <p className="text-xs text-gray-500">{t.heure || 'Heure non renseignée'}</p>
+                    </td>
+                    <td className="px-4 py-3">{t.siege || '—'}</td>
+                    <td className="px-4 py-3">{(t.paiement || '—').replace(/_/g, ' ')}</td>
+                    <td className="px-4 py-3 whitespace-nowrap font-bold">{formatNumber(t.prix)} FCFA</td>
+                    <td className="px-4 py-3"><span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-bold">{t.statut.replace(/_/g, ' ')}</span></td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
-          {filtered.length === 0 && (
-            <div className="py-16 text-center">
-              <Bus size={32} className="mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-500">Aucun ticket</p>
-            </div>
-          )}
+          {loading ? (
+            <p className="p-10 text-center text-gray-500">Chargement des billets…</p>
+          ) : !lastUpdated ? (
+            <p className="p-10 text-center text-gray-500">Aucune liste de billets reçue.</p>
+          ) : filtered.length === 0 ? (
+            <p className="p-10 text-center text-gray-500">Aucun billet correspondant.</p>
+          ) : null}
         </div>
+        <p className="text-xs text-gray-500">
+          L'heure et la date affichées sont celles du départ. Le backend ne fournit pas encore
+          de date de vente dans cet événement Socket.IO. L'export contient uniquement les billets chargés.
+        </p>
       </div>
-    </div>
+    </section>
   );
-};
+}
 
 export default TricyclesModule;

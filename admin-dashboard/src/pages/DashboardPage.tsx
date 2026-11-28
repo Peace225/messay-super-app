@@ -1,380 +1,497 @@
-import React, { useEffect, useState } from 'react';
-import { Users, Car, Ticket, Wallet, Activity } from 'lucide-react';
-import { io } from 'socket.io-client';
-import api from '../services/api';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
+/**
+ * MESSAY Admin — Vue d'ensemble (courses tricycle et billetterie interurbaine).
+ *
+ * Backend vérifié :
+ * - GET /api/finance/stats (JWT ADMIN)
+ * - Socket.IO auth: { token: JWT_ADMIN }
+ * - tricycles:get-all -> tricycles:list (100 derniers véhicules au maximum)
+ *
+ * La liste Socket.IO contient des POSITIONS ENREGISTRÉES, pas un flux GPS
+ * continu. Le serveur n'émet pas ride:new, ride:update, client-position,
+ * position-updated, ni les positions de tous les passagers vers admin-room.
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { io, type Socket } from 'socket.io-client';
+import {
+  Activity,
+  AlertCircle,
+  Bike,
+  Bus,
+  Clock3,
+  MapPin,
+  RefreshCw,
+  Users,
+  Wallet,
+  Wifi,
+  WifiOff,
+} from 'lucide-react';
+import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import api from '../services/api';
 
-// 🔑 TOMTOM - Remplace par ta clé complète
-const TOMTOM_KEY = import.meta.env.VITE_TOMTOM_KEY;
+const API_URL = (
+  import.meta.env.VITE_API_URL?.trim() ||
+  'https://messay-api.onrender.com/api'
+).replace(/\/+$/, '');
 
-// Icônes
-const tricycleIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-});
+const SOCKET_URL = (
+  import.meta.env.VITE_SOCKET_URL?.trim() ||
+  API_URL.replace(/\/api$/, '')
+).replace(/\/+$/, '');
 
-const clientIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-});
+const TOMTOM_KEY = import.meta.env.VITE_TOMTOM_KEY?.trim() || '';
+const REFRESH_MS = 30_000;
+const ABIDJAN_CENTER: [number, number] = [5.345317, -4.024429];
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://192.168.1.73:5000';
-
-interface PositionData {
-  courseId?: string;
-  tricycleId?: string;
-  lat: number;
-  lng: number;
-  chauffeurId?: string;
-  timestamp?: number;
-  vitesse?: number;
-  batterie?: number;
+// Marqueurs statiques : pas de chargement d'icônes Leaflet externes.
+function makeMarker(color: string): L.DivIcon {
+  return L.divIcon({
+    className: 'messay-tricycle-marker',
+    html: `<span style="display:block;width:18px;height:18px;border:3px solid white;border-radius:50%;background:${color};box-shadow:0 1px 8px #33415580"></span>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+  });
 }
+const availableMarker = makeMarker('#16a34a');
+const movingMarker = makeMarker('#ea580c');
+const otherMarker = makeMarker('#64748b');
 
-interface ClientPosition {
-  userId: string;
-  lat: number;
-  lng: number;
-  timestamp?: number;
-}
+type FinanceStats = {
+  chauffeursActifs?: number | null;
+  totalCourses?: number | null;
+  ticketsJour?: number | null;
+  revenuTotal?: number | null;
+  flotteActive?: number | null;
+  flotteTotal?: number | null;
+};
 
-interface TricycleRide {
+type Tricycle = {
   id: string;
-  pickup: { address: string };
-  destination: { address: string };
+  immatriculation: string;
+  chauffeur?: string | null;
   status: string;
-  price: number;
-  service: string;
-  clientId?: string;
-}
+  vitesse?: number | null;
+  batterie?: number | null;
+  position?: { lat?: number | null; lng?: number | null } | null;
+  derniereActivite?: string | null;
+};
 
-export default function DashboardPage() {
-  const [stats, setStats] = useState({ chauffeurs: 0, courses: 0, tickets: 0, volume: 0 });
-  const [isLoading, setIsLoading] = useState(true);
-  const [livePositions, setLivePositions] = useState<PositionData[]>([]);
-  const [clientPositions, setClientPositions] = useState<ClientPosition[]>([]);
-  const [tricycleRides, setTricycleRides] = useState<TricycleRide[]>([]);
-  const [isSocketConnected, setIsSocketConnected] = useState(false);
-  const [showTraffic, setShowTraffic] = useState(true); // ✅ NOUVEAU
+type MappedTricycle = Tricycle & {
+  lat: number;
+  lng: number;
+};
 
-  useEffect(() => {
-    const newSocket = io(SOCKET_URL, {
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionDelay: 1000,
-    });
+type DashboardPageProps = {
+  /** Fournir le JWT du compte ADMIN depuis le store d'authentification. */
+  accessToken?: string | null;
+};
 
-    const fetchStats = async () => {
-      try {
-        const response = await api.get('/stats');
-        setStats({
-          chauffeurs: response.data.chauffeurs || 0,
-          courses: response.data.courses || 0,
-          tickets: response.data.tickets || 0,
-          volume: response.data.volume || 0
-        });
-      } catch (error) {
-        console.error("Erreur stats:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+function getStoredAdminToken(explicit?: string | null): string | null {
+  if (explicit?.trim()) return explicit.trim();
+  if (typeof window === 'undefined') return null;
 
-    fetchStats();
-    const interval = setInterval(fetchStats, 10000);
-
-    const onConnect = () => {
-      console.log('✅ Admin connecté au socket');
-      setIsSocketConnected(true);
-      newSocket.emit('join-admin-panel');
-    };
-
-    const onDisconnect = () => {
-      console.log('❌ Socket déconnecté');
-      setIsSocketConnected(false);
-    };
-
-    const onPositionUpdated = (data: PositionData) => {
-      setLivePositions(prev => {
-        const id = data.courseId || data.tricycleId || '';
-        const idx = prev.findIndex(p => (p.courseId || p.tricycleId) === id);
-        const updated = {...data, timestamp: Date.now() };
-
-        if (idx >= 0) {
-          const newArr = [...prev];
-          newArr[idx] = updated;
-          return newArr;
-        }
-        return [updated,...prev].slice(0, 50);
-      });
-    };
-
-    const onClientPosition = (data: ClientPosition) => {
-      setClientPositions(prev => {
-        const idx = prev.findIndex(p => p.userId === data.userId);
-        const updated = {...data, timestamp: Date.now() };
-
-        if (idx >= 0) {
-          const newArr = [...prev];
-          newArr[idx] = updated;
-          return newArr;
-        }
-        return [updated,...prev].slice(0, 50);
-      });
-    };
-
-    const onNewRide = (ride: TricycleRide) => {
-      console.log('🆕 Nouvelle course:', ride);
-      setTricycleRides(prev => [ride,...prev].slice(0, 20));
-      setStats(s => ({...s, courses: s.courses + 1 }));
-    };
-
-    const onRideUpdate = (update: any) => {
-      setTricycleRides(prev =>
-        prev.map(r => r.id === update.id? {...r,...update } : r)
-      );
-    };
-
-    const onClientConnected = (data: any) => {
-      if (data.position) {
-        onClientPosition({
-          userId: data.id,
-          lat: data.position.lat,
-          lng: data.position.lng
-        });
-      }
-    };
-
-    newSocket.on('connect', onConnect);
-    newSocket.on('disconnect', onDisconnect);
-    newSocket.on('position-updated', onPositionUpdated);
-    newSocket.on('client-position', onClientPosition);
-    newSocket.on('client:connected', onClientConnected);
-    newSocket.on('ride:new', onNewRide);
-    newSocket.on('ride:update', onRideUpdate);
-    newSocket.on('ride:accepted', onRideUpdate);
-
-    return () => {
-      clearInterval(interval);
-      newSocket.off('connect', onConnect);
-      newSocket.off('disconnect', onDisconnect);
-      newSocket.off('position-updated', onPositionUpdated);
-      newSocket.off('client-position', onClientPosition);
-      newSocket.off('client:connected', onClientConnected);
-      newSocket.off('ride:new', onNewRide);
-      newSocket.off('ride:update', onRideUpdate);
-      newSocket.off('ride:accepted', onRideUpdate);
-      newSocket.disconnect();
-    };
-  }, []);
-
-  const statCards = [
-    {
-      title: "Chauffeurs Actifs",
-      value: stats.chauffeurs,
-      icon: <Users size={28} />,
-      color: "text-blue-600",
-      bg: "bg-blue-50",
-      border: "border-blue-100"
-    },
-    {
-      title: "Courses en direct",
-      value: tricycleRides.length > 0? tricycleRides.length : livePositions.length || stats.courses,
-      icon: <Car size={28} />,
-      color: "text-orange-600",
-      bg: "bg-orange-50",
-      border: "border-orange-100"
-    },
-    {
-      title: "Tickets de Bus",
-      value: stats.tickets,
-      icon: <Ticket size={28} />,
-      color: "text-green-600",
-      bg: "bg-green-50",
-      border: "border-green-100"
-    },
-    {
-      title: "Volume d'Affaires",
-      value: `${stats.volume.toLocaleString('fr-FR')} F`,
-      icon: <Wallet size={28} />,
-      color: "text-purple-600",
-      bg: "bg-purple-50",
-      border: "border-purple-100"
-    }
+  // Compatibilité avec les clés communes et les stores Zustand persistés.
+  // À terme : brancher directement accessToken depuis src/store/authStore.ts.
+  const keys = [
+    'accessToken',
+    'token',
+    'authToken',
+    'messay-admin-auth',
+    'admin-auth-storage',
+    'auth-storage',
   ];
 
-  const abidjanCenter: [number, number] = [5.345317, -4.024429];
+  for (const key of keys) {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) continue;
+    if (raw.startsWith('eyJ')) return raw;
+    try {
+      const decoded: unknown = JSON.parse(raw);
+      if (!decoded || typeof decoded !== 'object') continue;
+      const root = decoded as Record<string, unknown>;
+      const state = root.state && typeof root.state === 'object'
+        ? root.state as Record<string, unknown>
+        : root;
+      const value = state.accessToken ?? state.token;
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    } catch {
+      // Une autre clé du stockage ne contient pas de JSON.
+    }
+  }
+  return null;
+}
 
-  // ✅ URLs TomTom
-  const trafficFlowUrl = `https://api.tomtom.com/traffic/map/4/flow/relative/{z}/{x}/{y}.png?key=${TOMTOM_KEY}`;
-  const trafficIncidentsUrl = `https://api.tomtom.com/traffic/map/4/incidents/s3/{z}/{x}/{y}.png?key=${TOMTOM_KEY}`;
+function numeric(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function formatCount(value: number | null | undefined): string {
+  return numeric(value)?.toLocaleString('fr-FR') ?? '—';
+}
+
+function formatFCFA(value: number | null | undefined): string {
+  const amount = numeric(value);
+  return amount === null ? '—' : `${amount.toLocaleString('fr-FR')} FCFA`;
+}
+
+function isTricycle(value: unknown): value is Tricycle {
+  if (!value || typeof value !== 'object') return false;
+  const t = value as Record<string, unknown>;
+  return typeof t.id === 'string' &&
+    typeof t.immatriculation === 'string' &&
+    typeof t.status === 'string';
+}
+
+function readCoordinates(t: Tricycle): MappedTricycle | null {
+  const lat = numeric(t.position?.lat);
+  const lng = numeric(t.position?.lng);
+  if (lat === null || lng === null ||
+      lat < -90 || lat > 90 || lng < -180 || lng > 180 ||
+      (lat === 0 && lng === 0)) {
+    return null;
+  }
+  return { ...t, lat, lng };
+}
+
+/** Centrer une fois la carte sur la flotte : préserver ensuite les déplacements manuels. */
+function FleetViewport({ vehicles }: { vehicles: MappedTricycle[] }) {
+  const map = useMap();
+  const centeredRef = useRef(false);
+
+  useEffect(() => {
+    if (centeredRef.current || vehicles.length === 0) return;
+    centeredRef.current = true;
+    if (vehicles.length === 1) {
+      map.setView([vehicles[0].lat, vehicles[0].lng], 13);
+    } else {
+      map.fitBounds(vehicles.map(t => [t.lat, t.lng] as [number, number]), {
+        padding: [36, 36],
+        maxZoom: 14,
+      });
+    }
+  }, [map, vehicles]);
+  return null;
+}
+
+function formattedActivity(value?: string | null): string {
+  if (!value) return 'Non renseignée';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('fr-FR');
+}
+
+export default function DashboardPage({ accessToken }: DashboardPageProps) {
+  const [stats, setStats] = useState<FinanceStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [fleet, setFleet] = useState<Tricycle[]>([]);
+  const [fleetLoading, setFleetLoading] = useState(true);
+  const [fleetError, setFleetError] = useState<string | null>(null);
+  const [socketConnected, setSocketConnected] = useState(false);
+  const [lastFleetUpdate, setLastFleetUpdate] = useState<Date | null>(null);
+  const [showTraffic, setShowTraffic] = useState(false);
+  const socketRef = useRef<Socket | null>(null);
+  const mountedRef = useRef(true);
+  const refreshingRef = useRef(false);
+
+  const fetchStats = useCallback(async () => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
+    if (mountedRef.current) setStatsLoading(true);
+    try {
+      // Ce sont des statistiques issues de transactions et courses validées,
+      // et non des statistiques de sessions/positions GPS en temps réel.
+      const { data } = await api.get<FinanceStats>('/finance/stats');
+      if (mountedRef.current) {
+        setStats(data);
+        setStatsError(null);
+      }
+    } catch (error) {
+      console.error('[MESSAY/DASHBOARD] Statistiques indisponibles', error);
+      if (mountedRef.current) {
+        setStatsError('Statistiques indisponibles : vérifiez la session ADMIN et l’API.');
+      }
+    } finally {
+      if (mountedRef.current) setStatsLoading(false);
+      refreshingRef.current = false;
+    }
+  }, []);
+
+  const refresh = useCallback(() => {
+    void fetchStats();
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('tricycles:get-all');
+    }
+  }, [fetchStats]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void fetchStats();
+    const interval = window.setInterval(refresh, REFRESH_MS);
+    return () => {
+      mountedRef.current = false;
+      window.clearInterval(interval);
+    };
+  }, [fetchStats, refresh]);
+
+  useEffect(() => {
+    const token = getStoredAdminToken(accessToken);
+    if (!token) {
+      setFleetLoading(false);
+      setFleetError('Aucun JWT ADMIN détecté. Transmettez accessToken depuis votre authStore.');
+      return;
+    }
+
+    setFleetLoading(true);
+    setFleetError(null);
+    const socket = io(SOCKET_URL, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 1_000,
+      autoConnect: false,
+    });
+    socketRef.current = socket;
+   let responseTimeout: number | null = null;
+    const clearResponseTimeout = () => {
+      if (responseTimeout !== null) {
+        window.clearTimeout(responseTimeout);
+        responseTimeout = null;
+      }
+    };
+
+    const onConnect = () => {
+      setSocketConnected(true);
+      setFleetError(null);
+      socket.emit('join-admin-panel');
+      socket.emit('tricycles:get-all');
+      clearResponseTimeout();
+      responseTimeout = window.setTimeout(() => {
+        setFleetLoading(false);
+        setFleetError('Le serveur ne répond pas à tricycles:get-all. Vérifiez le rôle ADMIN.');
+      }, 12_000);
+    };
+    const onDisconnect = () => {
+      clearResponseTimeout();
+      setSocketConnected(false);
+      setFleetLoading(false);
+      setFleetError('Socket.IO déconnecté. Reconnexion en cours…');
+    };
+    const onConnectError = (error: Error) => {
+      clearResponseTimeout();
+      setSocketConnected(false);
+      setFleetLoading(false);
+      setFleetError(`Connexion Socket.IO refusée : ${error.message}`);
+    };
+    const onFleet = (payload: unknown) => {
+      clearResponseTimeout();
+      if (!Array.isArray(payload)) {
+        setFleetError('Format de liste des tricycles inattendu.');
+        setFleetLoading(false);
+        return;
+      }
+      setFleet(payload.filter(isTricycle));
+      setFleetLoading(false);
+      setFleetError(null);
+      setLastFleetUpdate(new Date());
+    };
+    const onServerError = (payload: unknown) => {
+      if (payload && typeof payload === 'object' && 'message' in payload) {
+        setFleetError(String((payload as { message: unknown }).message));
+      }
+    };
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('connect_error', onConnectError);
+    socket.on('tricycles:list', onFleet);
+    socket.on('server:error', onServerError);
+    socket.connect();
+
+    return () => {
+      clearResponseTimeout();
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('connect_error', onConnectError);
+      socket.off('tricycles:list', onFleet);
+      socket.off('server:error', onServerError);
+      socket.disconnect();
+      if (socketRef.current === socket) socketRef.current = null;
+    };
+  }, [accessToken]);
+
+  const mappedFleet = useMemo(
+    () => fleet.map(readCoordinates).filter((t): t is MappedTricycle => t !== null),
+    [fleet],
+  );
+
+  const available = fleet.filter(t => t.status === 'DISPONIBLE').length;
+  const inRide = fleet.filter(t => t.status === 'EN_COURSE').length;
+  const trafficFlowUrl = TOMTOM_KEY
+    ? `https://api.tomtom.com/traffic/map/4/flow/relative/{z}/{x}/{y}.png?key=${encodeURIComponent(TOMTOM_KEY)}`
+    : '';
+  const trafficIncidentsUrl = TOMTOM_KEY
+    ? `https://api.tomtom.com/traffic/map/4/incidents/s3/{z}/{x}/{y}.png?key=${encodeURIComponent(TOMTOM_KEY)}`
+    : '';
+
+  const cards = [
+    {
+      title: 'Conducteurs actifs',
+      value: formatCount(stats?.chauffeursActifs),
+      icon: Users,
+      color: 'text-blue-600 bg-blue-50',
+    },
+    {
+      title: 'Courses terminées (cumul)',
+      value: formatCount(stats?.totalCourses),
+      icon: Bike,
+      color: 'text-orange-600 bg-orange-50',
+    },
+    {
+      title: 'Billets payés aujourd’hui',
+      value: formatCount(stats?.ticketsJour),
+      icon: Bus,
+      color: 'text-green-600 bg-green-50',
+    },
+    {
+      title: 'Recettes validées',
+      value: formatFCFA(stats?.revenuTotal),
+      icon: Wallet,
+      color: 'text-purple-600 bg-purple-50',
+    },
+  ];
 
   return (
-    <div className="space-y-8 p-2">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-6 p-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight">Vue d'ensemble</h1>
-          <p className="text-gray-500 font-medium mt-1">Statistiques en direct de l'activité MESSAY.</p>
+          <h1 className="text-3xl font-black tracking-tight text-gray-900">Vue d’ensemble MESSAY</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Tricycles et billetterie interurbaine — données du backend.
+          </p>
         </div>
-        <div className="flex items-center space-x-2 bg-green-50 px-4 py-2 rounded-full border border-green-200 shadow-sm w-max">
-          <Activity size={18} className="text-green-600 animate-pulse" />
-          <span className="text-sm font-bold text-green-700 tracking-wide uppercase">Live Updates</span>
-        </div>
+        <button
+          type="button"
+          onClick={refresh}
+          disabled={statsLoading}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-bold text-gray-700 shadow-sm disabled:opacity-50"
+        >
+          <RefreshCw size={16} className={statsLoading ? 'animate-spin' : ''} />
+          Actualiser
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-        {statCards.map((card, idx) => (
-          <div key={idx} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-center transition-all hover:shadow-md hover:-translate-y-1 duration-300">
-            <div className="flex justify-between items-start mb-4">
-              <div className={`p-4 rounded-2xl ${card.bg} ${card.color} ${card.border} border`}>
-                {card.icon}
-              </div>
+      {statsError && (
+        <div role="alert" className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <AlertCircle size={18} className="shrink-0" /> {statsError}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {cards.map(card => (
+          <div key={card.title} className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
+            <div className={`mb-4 inline-flex rounded-2xl p-3 ${card.color}`}>
+              <card.icon size={24} />
             </div>
-            <div>
-              <h3 className="text-4xl font-black text-gray-900 tracking-tight">
-                {isLoading? <span className="text-gray-300">...</span> : card.value}
-              </h3>
-              <p className="text-sm text-gray-500 font-bold mt-1">{card.title}</p>
+            <div className="text-2xl font-black text-gray-900">
+              {statsLoading && !stats ? '…' : card.value}
             </div>
+            <p className="mt-1 text-sm font-semibold text-gray-500">{card.title}</p>
           </div>
         ))}
       </div>
 
-      {tricycleRides.length > 0 && (
-        <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6">
-          <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-            🚲 Courses Tricycle Récentes
-            <span className="text-sm bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
-              {tricycleRides.length}
-            </span>
-          </h2>
-          <div className="space-y-2 max-h-48 overflow-y-auto">
-            {tricycleRides.slice(0, 5).map(ride => (
-              <div key={ride.id} className="flex justify-between items-center p-3 bg-orange-50 rounded-xl hover:bg-orange-100 transition-colors">
-                <div>
-                  <p className="font-semibold text-sm text-gray-900">
-                    {ride.pickup?.address || 'Départ'} → {ride.destination?.address || 'Arrivée'}
-                  </p>
-                  <p className="text-xs text-gray-600 mt-1">
-                    {ride.service} • {ride.price?.toLocaleString()} FCFA
-                  </p>
-                </div>
-                <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                  ride.status === 'pending'? 'bg-yellow-200 text-yellow-800' :
-                  ride.status === 'accepted'? 'bg-blue-200 text-blue-800' :
-                  'bg-green-200 text-green-800'
-                }`}>
-                  {ride.status}
-                </span>
-              </div>
+      <section className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">Flotte de tricycles</h2>
+            <p className="text-xs text-gray-500">
+              Dernières informations enregistrées (liste limitée à 100 véhicules par le serveur).
+            </p>
+          </div>
+          <div className={`inline-flex items-center gap-2 text-xs font-bold ${socketConnected ? 'text-green-700' : 'text-gray-500'}`}>
+            {socketConnected ? <Wifi size={16} /> : <WifiOff size={16} />}
+            {socketConnected ? 'Socket ADMIN connecté' : 'Socket hors ligne'}
+          </div>
+        </div>
+
+        {fleetError && (
+          <div role="alert" className="mb-4 flex gap-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
+            <AlertCircle size={17} className="shrink-0" /> {fleetError}
+          </div>
+        )}
+
+        <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="rounded-2xl bg-gray-50 p-4">
+            <p className="text-xs font-semibold text-gray-500">Dans la liste</p>
+            <p className="mt-1 text-2xl font-black">{fleetLoading ? '…' : fleet.length}</p>
+          </div>
+          <div className="rounded-2xl bg-green-50 p-4">
+            <p className="text-xs font-semibold text-green-700">Disponibles</p>
+            <p className="mt-1 text-2xl font-black text-green-800">{fleetLoading ? '…' : available}</p>
+          </div>
+          <div className="rounded-2xl bg-orange-50 p-4">
+            <p className="text-xs font-semibold text-orange-700">En course (statut)</p>
+            <p className="mt-1 text-2xl font-black text-orange-800">{fleetLoading ? '…' : inRide}</p>
+          </div>
+          <div className="rounded-2xl bg-blue-50 p-4">
+            <p className="text-xs font-semibold text-blue-700">Positions disponibles</p>
+            <p className="mt-1 text-2xl font-black text-blue-800">{fleetLoading ? '…' : mappedFleet.length}</p>
+          </div>
+        </div>
+
+        <div className="relative h-[470px] overflow-hidden rounded-2xl border border-gray-200">
+          <div className="absolute left-3 top-3 z-[500] flex flex-col gap-2">
+            <div className="rounded-lg border bg-white/95 px-3 py-2 text-xs font-semibold text-gray-700 shadow-sm">
+              <span className="inline-flex items-center gap-1"><MapPin size={13} /> Dernières positions connues</span>
+            </div>
+            {TOMTOM_KEY ? (
+              <button
+                type="button"
+                onClick={() => setShowTraffic(value => !value)}
+                className={`rounded-lg border px-3 py-2 text-xs font-bold shadow-sm ${showTraffic ? 'border-orange-600 bg-orange-600 text-white' : 'bg-white/95 text-gray-700'}`}
+              >
+                Trafic TomTom : {showTraffic ? 'activé' : 'désactivé'}
+              </button>
+            ) : null}
+          </div>
+
+          <MapContainer center={ABIDJAN_CENTER} zoom={11} className="h-full w-full" style={{ height: '100%', width: '100%' }}>
+            <FleetViewport vehicles={mappedFleet} />
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            {showTraffic && TOMTOM_KEY && (
+              <>
+                <TileLayer url={trafficFlowUrl} opacity={0.7} zIndex={10} />
+                <TileLayer url={trafficIncidentsUrl} opacity={0.8} zIndex={11} />
+              </>
+            )}
+            {mappedFleet.map(t => (
+              <Marker key={t.id} position={[t.lat, t.lng]} icon={t.status === 'DISPONIBLE' ? availableMarker : t.status === 'EN_COURSE' ? movingMarker : otherMarker}>
+                <Popup>
+                  <div className="min-w-[180px] text-sm">
+                    <strong>{t.immatriculation}</strong>
+                    <div>Conducteur : {t.chauffeur || 'Non affecté'}</div>
+                    <div>Statut : {t.status.replace(/_/g, ' ')}</div>
+                    <div>Vitesse enregistrée : {numeric(t.vitesse) ?? '—'} km/h</div>
+                    <div>Batterie : {numeric(t.batterie) ?? '—'} %</div>
+                    <div>Dernière activité : {formattedActivity(t.derniereActivite)}</div>
+                    <div>GPS : {t.lat.toFixed(5)}, {t.lng.toFixed(5)}</div>
+                  </div>
+                </Popup>
+              </Marker>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* ✅ CORRIGÉ: h-[600px] au lieu de h- */}
-      <div className="bg-white rounded-3xl border border-gray-200 shadow-sm flex flex-col h-[600px] relative overflow-hidden">
-        {/* Bouton Trafic */}
-        <div className="absolute top-4 left-4 z-[400]">
-          <button
-            onClick={() => setShowTraffic(!showTraffic)}
-            className={`px-4 py-2 rounded-xl text-xs font-bold shadow-lg backdrop-blur-sm border transition-all ${
-              showTraffic
-               ? 'bg-orange-500 text-white border-orange-600'
-                : 'bg-white/90 text-gray-700 border-gray-200'
-            }`}
-          >
-            🚦 TRAFIC {showTraffic? 'ON' : 'OFF'}
-          </button>
+          </MapContainer>
         </div>
 
-        <div className="absolute top-4 right-4 z-[400]">
-          <div className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold shadow-lg bg-white/90 backdrop-blur-sm border ${isSocketConnected? 'text-green-700 border-green-200' : 'text-red-700 border-red-200'}`}>
-            <div className={`w-2.5 h-2.5 rounded-full ${isSocketConnected? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-            <span>{isSocketConnected? 'GPS CONNECTÉ' : 'HORS LIGNE'}</span>
-          </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+          <span className="inline-flex items-center gap-1"><Clock3 size={13} /> Dernière récupération : {lastFleetUpdate ? lastFleetUpdate.toLocaleTimeString('fr-FR') : 'Aucune'}</span>
+          <span className="inline-flex items-center gap-1"><Activity size={13} /> Actualisation toutes les 30 secondes</span>
         </div>
-
-        <div className="absolute bottom-4 left-4 z-[400] bg-white/90 backdrop-blur px-3 py-2 rounded-xl border shadow-sm">
-          <div className="flex items-center gap-4 text-xs font-bold">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 bg-green-500 rounded-full"></span>
-              {livePositions.length} Chauffeurs
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 bg-blue-500 rounded-full"></span>
-              {clientPositions.length} Clients
-            </span>
-          </div>
-        </div>
-
-        <MapContainer center={abidjanCenter} zoom={12} style={{ height: '100%', width: '100%', zIndex: 0 }}>
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-
-          {/* ✅ TRAFIC TOMTOM */}
-          {showTraffic && (
-            <>
-              <TileLayer url={trafficFlowUrl} opacity={0.7} zIndex={10} />
-              <TileLayer url={trafficIncidentsUrl} opacity={0.8} zIndex={11} />
-            </>
-          )}
-
-          {livePositions.map((pos) => (
-            <Marker
-              key={`driver-${pos.courseId || pos.tricycleId}`}
-              position={[pos.lat, pos.lng]}
-              icon={tricycleIcon}
-            >
-              <Popup>
-                <div className="font-sans min-w-[200px]">
-                  <div className="font-bold text-gray-900 text-sm mb-1">
-                    🚕 Tricycle #{(pos.courseId || pos.tricycleId || '').slice(-6)}
-                  </div>
-                  <div className="text-gray-600 text-xs space-y-1">
-                    <div>Lat: {pos.lat?.toFixed(5)}</div>
-                    <div>Lng: {pos.lng?.toFixed(5)}</div>
-                    {pos.vitesse!== undefined && <div>Vitesse: {pos.vitesse} km/h</div>}
-                    {pos.batterie!== undefined && <div>Batterie: {pos.batterie}%</div>}
-                  </div>
-                  {pos.timestamp && (
-                    <div className="text-gray-400 text-[10px] mt-2 border-t border-gray-100 pt-1">
-                      {new Date(pos.timestamp).toLocaleTimeString('fr-FR')}
-                    </div>
-                  )}
-                </div>
-              </Popup>
-            </Marker>
-          ))}
-
-          {clientPositions.map((pos) => (
-            <Marker key={`client-${pos.userId}`} position={[pos.lat, pos.lng]} icon={clientIcon}>
-              <Popup>
-                <div className="font-sans min-w-[180px]">
-                  <div className="font-bold text-blue-700 text-sm mb-1">
-                    👤 Client #{pos.userId?.slice(-6)}
-                  </div>
-                  <div className="text-gray-600 text-xs">
-                    <div>Lat: {pos.lat?.toFixed(5)}</div>
-                    <div>Lng: {pos.lng?.toFixed(5)}</div>
-                  </div>
-                  {pos.timestamp && (
-                    <div className="text-gray-400 text-[10px] mt-2 border-t border-gray-100 pt-1">
-                      {new Date(pos.timestamp).toLocaleTimeString('fr-FR')}
-                    </div>
-                  )}
-                </div>
-              </Popup>
-            </Marker>
-          ))}
-        </MapContainer>
-      </div>
+      </section>
     </div>
   );
 }

@@ -1,719 +1,512 @@
-developper plus le module logistique on doit voir toutes les tricycle disponible et en mouvement, voit les tickets de bus vendus pour chaque compagnie(les détails: le nom de passager, l'heure, la date etc... 2 module resource on doit voir toutes les utilisateurs connecter sur l'apps ses mouvements, et etre capable de s'inscrire un chauffeurs de lui donner un ID pour ce connecter 3 Module finance on doit voir les finances de l'apps et voir toutes les rapports technique, finance, administrative : import React, { useEffect, useState, useMemo, useRef } from 'react';
+/// <reference types="vite/client" />
+/**
+ * MESSAY — modules du tableau de bord administrateur.
+ * Périmètre : transport par tricycle et billetterie interurbaine.
+ *
+ * Sources réelles déjà exposées par le backend :
+ * - Socket.IO (JWT ADMIN) : tricycles:get-all -> tricycles:list
+ * - Socket.IO (JWT ADMIN) : tickets:get-today -> tickets:list
+ * - GET /api/finance/stats et GET /api/finance/transactions
+ *
+ * L'API de création administrative des conducteurs et la liste exhaustive
+ * des utilisateurs connectés ne sont pas documentées ici : aucune donnée
+ * fictive et aucune création simulée ne sont proposées.
+ */
 
-import { io, Socket } from 'socket.io-client';
-
+import { useCallback, useEffect, useMemo, useState, type FC } from 'react';
+import { io } from 'socket.io-client';
 import {
-
-  UserPlus, Search, Edit2, Trash2, Shield,
-
-  UserCheck, UserX, Wallet, TrendingUp, TrendingDown,
-
-  Download, PlusCircle
-
+  AlertCircle,
+  Bike,
+  BusFront,
+  CircleDollarSign,
+  Download,
+  MapPin,
+  Search,
+  ShieldCheck,
+  Users,
 } from 'lucide-react';
 
+// À configurer dans admin-dashboard/.env.local pour un backend local.
+const API_URL = (
+  import.meta.env.VITE_API_URL?.trim() || 'https://messay-api.onrender.com/api'
+).replace(/\/+$/, '');
+const SOCKET_URL = (
+  import.meta.env.VITE_SOCKET_URL?.trim() || API_URL.replace(/\/api$/, '')
+).replace(/\/+$/, '');
 
+const POLL_MS = 30_000;
 
-// --- CONFIG ---
+type ModuleProps = { accessToken?: string };
+type ActionProps = ModuleProps & { onRegisterDriver?: () => void };
 
-const SOCKET_URL = 'http://127.0.0.1:5000';
+type Tricycle = {
+  id: string;
+  immatriculation: string;
+  chauffeur?: string;
+  chauffeurTel?: string;
+  status: string;
+  batterie?: number | null;
+  vitesse?: number | null;
+  position?: { lat?: number | null; lng?: number | null } | null;
+  derniereActivite?: string | null;
+  coursesAujourdhui?: number | null;
+  modele?: string | null;
+};
 
+type Ticket = {
+  id: string;
+  compagnie: string;
+  passager: string;
+  telephone?: string;
+  trajet: string;
+  date: string; // date de DÉPART, pas date d'achat
+  heure: string;
+  prix: number;
+  siege?: string | null;
+  paiement?: string | null;
+  statut: string;
+  gareDepart?: string | null;
+  gareArrivee?: string | null;
+};
 
+type FinanceStats = {
+  revenuTotal: number;
+  revenuJour: number;
+  depenses: number;
+  benefice: number;
+  totalCourses: number;
+  chauffeursActifs: number;
+  flotteActive: number;
+  flotteTotal: number;
+  maintenance: number;
+  ticketsJour: number;
+  alertes: number;
+  note?: string;
+};
 
-// --- TYPES ---
+type FinanceTransaction = {
+  id: string;
+  type: string;
+  montant: number;
+  createdAt?: string;
+  motif?: string | null;
+  statut?: string;
+};
 
-type Position = { courseId: string; lat: number; lng: number; timestamp?: number };
+type RemoteState<T> = {
+  items: T[];
+  connected: boolean;
+  loading: boolean;
+  error: string | null;
+  refresh: () => void;
+};
 
-type Chauffeur = { id: string; nom: string; telephone: string; status: 'ACTIF' | 'EN_COURS' | 'INACTIF'; vehicule: string; revenue: string };
+function tokenFromStorage(provided?: string): string | null {
+  if (provided?.trim()) return provided.trim();
+  if (typeof window === 'undefined') return null;
 
-type AppUser = { id: string; nom: string; email: string; role: 'USER' | 'ADMIN' | 'SUPER_ADMIN'; date: string };
+  // Compatibilité avec les stockages courants. Préférer le passage explicite
+  // de accessToken depuis le store ADMIN si son format est différent.
+  const keys = [
+    'accessToken', 'token', 'authToken', 'messay-admin-auth',
+    'admin-auth-storage', 'auth-storage',
+  ];
+  for (const key of keys) {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) continue;
+    if (raw.startsWith('eyJ')) return raw;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        const obj = parsed as Record<string, unknown>;
+        const state = obj.state && typeof obj.state === 'object'
+          ? (obj.state as Record<string, unknown>) : obj;
+        for (const field of ['accessToken', 'token']) {
+          const value = state[field];
+          if (typeof value === 'string' && value.trim()) return value.trim();
+        }
+      }
+    } catch {
+      // Cette clé n'est pas un objet JSON.
+    }
+  }
+  return null;
+}
 
-type Transaction = { id: string; motif: string; montant: number; date: string; type: 'ENTRÉE' | 'SORTIE' };
-
-
-
-// ==========================================
-
-// 1. MODULES LOGISTIQUE
-
-// ==========================================
-
-
-
-export const TricyclesModule: React.FC = () => {
-
-  const [positions, setPositions] = useState<Position[]>([]);
-
-  const [isConnected, setIsConnected] = useState(false);
-
-  const socketRef = useRef<Socket | null>(null);
-
-
+function useAdminSocketList<T>(
+  requestEvent: string,
+  responseEvent: string,
+  providedToken?: string,
+): RemoteState<T> {
+  const [items, setItems] = useState<T[]>([]);
+  const [connected, setConnected] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshId, setRefreshId] = useState(0);
+  const refresh = useCallback(() => setRefreshId(value => value + 1), []);
 
   useEffect(() => {
+    const token = tokenFromStorage(providedToken);
+    if (!token) {
+      setLoading(false);
+      setError('Session administrateur introuvable : connectez-vous ou transmettez accessToken au module.');
+      setConnected(false);
+      return;
+    }
 
-    const socket = io(SOCKET_URL, { transports: ['websocket'], reconnection: true });
+    setLoading(true);
+    setError(null);
+    const socket = io(SOCKET_URL, {
+      auth: { token },
+      transports: ['websocket'],
+      reconnection: true,
+      timeout: 12_000,
+    });
 
-    socketRef.current = socket;
-
-
-
-    const onConnect = () => { setIsConnected(true); socket.emit('join-admin-panel'); };
-
-    const onDisconnect = () => setIsConnected(false);
-
-    const onPosition = (data: Position) => setPositions(prev => [data, ...prev].slice(0, 20));
-
-
-
-    socket.on('connect', onConnect);
-
-    socket.on('disconnect', onDisconnect);
-
-    socket.on('position-updated', onPosition);
-
-
-
-    return () => {
-
-      socket.off('connect', onConnect);
-
-      socket.off('disconnect', onDisconnect);
-
-      socket.off('position-updated', onPosition);
-
-      socket.disconnect();
-
+    const request = () => {
+      if (socket.connected) socket.emit(requestEvent);
+    };
+    const onConnect = () => {
+      setConnected(true);
+      setError(null);
+      socket.emit('join-admin-panel');
+      request();
+    };
+    const onDisconnect = () => setConnected(false);
+    const onError = (err: Error) => {
+      setConnected(false);
+      setLoading(false);
+      setError(err.message || 'Connexion Socket.IO impossible.');
+    };
+    const onList = (payload: unknown) => {
+      if (!Array.isArray(payload)) {
+        setError('Réponse du serveur inattendue.');
+        setLoading(false);
+        return;
+      }
+      setItems(payload as T[]);
+      setLoading(false);
+      setError(null);
+    };
+    const onServerError = (payload: { message?: string }) => {
+      setError(payload?.message || 'Le serveur a signalé une erreur.');
+      setLoading(false);
     };
 
-  }, []);
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('connect_error', onError);
+    socket.on(responseEvent, onList);
+    socket.on('server:error', onServerError);
+    // Les endpoints fournissent des instantanés, pas un flux GPS admin.
+    const interval = window.setInterval(request, POLL_MS);
 
+    return () => {
+      window.clearInterval(interval);
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('connect_error', onError);
+      socket.off(responseEvent, onList);
+      socket.off('server:error', onServerError);
+      socket.disconnect();
+    };
+  }, [requestEvent, responseEvent, providedToken, refreshId]);
 
+  return { items, connected, loading, error, refresh };
+}
 
-  return (
+function formatAmount(amount: unknown): string {
+  return typeof amount === 'number' && Number.isFinite(amount)
+    ? `${amount.toLocaleString('fr-FR')} FCFA`
+    : '—';
+}
+function formatDate(value?: string | null): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('fr-FR');
+}
+function formatDateTime(value?: string | null): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('fr-FR');
+}
+function exportCsv(filename: string, columns: string[], rows: unknown[][]): void {
+  const escapeCell = (cell: unknown) => {
+    const raw = String(cell ?? '');
+    // Empêche l'exécution de formules dans les tableurs.
+    const safe = /^[\s]*[=+\-@]/.test(raw) ? `'${raw}` : raw;
+    return `"${safe.replace(/"/g, '""')}"`;
+  };
+  const content = [columns, ...rows].map(row => row.map(escapeCell).join(';')).join('\r\n');
+  const blob = new Blob(['\uFEFF', content], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
-    <div className="p-6 bg-white rounded-2xl shadow-sm border border-gray-100 h-full">
-
-      <div className="flex justify-between items-center mb-6">
-
-        <h2 className="text-xl font-bold text-gray-800">📍 Suivi des Tricycles</h2>
-
-        <div className={`flex items-center space-x-2 text-xs font-bold px-3 py-1 rounded-full ${isConnected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-
-          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-
-          <span>{isConnected ? 'EN LIGNE' : 'HORS LIGNE'}</span>
-
-        </div>
-
-      </div>
-
-
-
-      <div className="space-y-3 overflow-y-auto max-h-[400px] pr-2">
-
-        {positions.length > 0 ? positions.map((pos, idx) => (
-
-          <div key={`${pos.courseId}-${pos.timestamp ?? idx}`} className="p-4 bg-gray-50 rounded-xl border border-gray-200 hover:border-orange-300 transition-all">
-
-            <div className="flex justify-between text-sm">
-
-              <span className="font-bold text-orange-600">Course: #{pos.courseId?.slice(-6)}</span>
-
-              <span className="text-gray-400">{pos.timestamp ? new Date(pos.timestamp).toLocaleTimeString('fr-FR') : new Date().toLocaleTimeString('fr-FR')}</span>
-
-            </div>
-
-            <div className="mt-2 text-gray-700 font-mono text-xs">
-
-              Lat: {pos.lat?.toFixed(6)} | Lng: {pos.lng?.toFixed(6)}
-
-            </div>
-
-          </div>
-
-        )) : (
-
-          <div className="text-center py-12 text-gray-400">
-
-            <p>En attente de données GPS...</p>
-
-            <p className="text-xs mt-2 italic">Assurez-vous que l'application mobile envoie les positions.</p>
-
-          </div>
-
-        )}
-
-      </div>
-
-    </div>
-
-  );
-
-};
-
-
-
-export const BusTicketsModule: React.FC = () => (
-
-  <div className="p-6 bg-white rounded-2xl shadow-sm border border-gray-100">
-
-    <h2 className="text-xl font-bold mb-4 text-gray-800">🚌 Tickets de Bus</h2>
-
-    <div className="space-y-4">
-
-      <div className="p-4 bg-blue-50 rounded-xl">
-
-        <p className="text-blue-800 text-sm font-medium">Tickets vendus aujourd'hui</p>
-
-        <p className="text-3xl font-black text-blue-900">1,248</p>
-
-      </div>
-
-    </div>
-
+const Alert: FC<{ message: string }> = ({ message }) => (
+  <div role="alert" className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">
+    <AlertCircle size={18} className="shrink-0 mt-0.5" />
+    <span>{message}</span>
   </div>
-
 );
 
-
-
-// ==========================================
-
-// 2. MODULES RESSOURCES HUMAINES
-
-// ==========================================
-
-
-
-export const ChauffeursModule: React.FC = () => {
-
-  const [searchTerm, setSearchTerm] = useState('');
-
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
-
-
-  const chauffeurs: Chauffeur[] = [
-
-    { id: '1', nom: 'Moussa Koné', telephone: '+2250700000001', status: 'ACTIF', vehicule: 'Tricycle - 4521 AB', revenue: '45,000 F' },
-
-    { id: '2', nom: 'Jean Yao', telephone: '+2250700000002', status: 'EN_COURS', vehicule: 'Tricycle - 8854 EF', revenue: '32,000 F' },
-
-    { id: '3', nom: 'Ibrahim Traoré', telephone: '+2250700000003', status: 'INACTIF', vehicule: 'Camion - 1247 GH', revenue: '0 F' },
-
-  ];
-
-
-
-  const filtered = useMemo(() => {
-
-    const term = searchTerm.toLowerCase();
-
-    return chauffeurs.filter(c =>
-
-      c.nom.toLowerCase().includes(term) ||
-
-      c.telephone.includes(term) ||
-
-      c.vehicule.toLowerCase().includes(term)
-
-    );
-
-  }, [searchTerm]);
-
-
-
-  return (
-
-    <div className="space-y-6">
-
-      <div className="flex justify-between items-center">
-
-        <div>
-
-          <h2 className="text-2xl font-black text-gray-800">👨‍✈️ Gestion des Chauffeurs</h2>
-
-          <p className="text-sm text-gray-500">Administration des profils et suivi d'activité de la flotte.</p>
-
-        </div>
-
-        <button
-
-          onClick={() => setIsModalOpen(true)}
-
-          className="flex items-center space-x-2 bg-orange-600 hover:bg-orange-700 text-white px-5 py-3 rounded-2xl font-bold transition-all shadow-lg shadow-orange-100"
-
-        >
-
-          <UserPlus size={18} />
-
-          <span>Ajouter un chauffeur</span>
-
-        </button>
-
-      </div>
-
-
-
-      <div className="flex bg-white p-4 rounded-2xl border border-gray-100 shadow-sm gap-4">
-
-        <div className="flex-1 relative flex items-center">
-
-          <Search className="absolute left-4 text-gray-400" size={18} />
-
-          <input
-
-            type="text"
-
-            placeholder="Rechercher un chauffeur par nom ou véhicule..."
-
-            className="w-full pl-12 pr-4 py-3 bg-gray-50 rounded-xl text-sm border-0 focus:ring-2 focus:ring-orange-500 outline-none"
-
-            value={searchTerm}
-
-            onChange={(e) => setSearchTerm(e.target.value)}
-
-          />
-
-        </div>
-
-      </div>
-
-
-
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-
-        <div className="overflow-x-auto">
-
-          <table className="w-full text-left border-collapse">
-
-            <thead>
-
-              <tr className="bg-gray-50 text-xs font-black text-gray-400 uppercase tracking-wider">
-
-                <th className="px-6 py-4">Chauffeur</th>
-
-                <th className="px-6 py-4">Téléphone</th>
-
-                <th className="px-6 py-4">Véhicule assigné</th>
-
-                <th className="px-6 py-4">Statut</th>
-
-                <th className="px-6 py-4">Revenus générés</th>
-
-                <th className="px-6 py-4 text-right">Actions</th>
-
-              </tr>
-
-            </thead>
-
-            <tbody className="divide-y divide-gray-100 text-sm">
-
-              {filtered.map((c) => (
-
-                <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-
-                  <td className="px-6 py-4 font-bold text-gray-700">{c.nom}</td>
-
-                  <td className="px-6 py-4 font-mono text-gray-500">{c.telephone}</td>
-
-                  <td className="px-6 py-4 text-gray-500">{c.vehicule}</td>
-
-                  <td className="px-6 py-4">
-
-                    <span className={`inline-flex items-center space-x-1 px-3 py-1 rounded-full text-[10px] font-black tracking-wider ${
-
-                      c.status === 'ACTIF' ? 'bg-green-50 text-green-700' :
-
-                      c.status === 'EN_COURS' ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'
-
-                    }`}>
-
-                      {c.status === 'ACTIF' ? <UserCheck size={12} /> : <UserX size={12} />}
-
-                      <span>{c.status}</span>
-
-                    </span>
-
-                  </td>
-
-                  <td className="px-6 py-4 font-extrabold text-gray-900">{c.revenue}</td>
-
-                  <td className="px-6 py-4 text-right">
-
-                    <div className="flex items-center justify-end space-x-2">
-
-                      <button className="p-2 hover:bg-gray-100 rounded-xl text-gray-600 transition-colors"><Edit2 size={16} /></button>
-
-                      <button className="p-2 hover:bg-red-50 rounded-xl text-red-600 transition-colors"><Trash2 size={16} /></button>
-
-                    </div>
-
-                  </td>
-
-                </tr>
-
-              ))}
-
-            </tbody>
-
-          </table>
-
-        </div>
-
-      </div>
-
-
-
-      {/* MODAL FONCTIONNEL */}
-
-      {isModalOpen && (
-
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-
-          <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl">
-
-            <h3 className="text-xl font-bold mb-4">Nouveau Chauffeur</h3>
-
-            <div className="space-y-4">
-
-              <div>
-
-                <label className="text-xs font-bold text-gray-500 uppercase">Nom complet</label>
-
-                <input type="text" placeholder="Ex: Moussa Koné" className="w-full p-3 mt-1 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" />
-
-              </div>
-
-              <div>
-
-                <label className="text-xs font-bold text-gray-500 uppercase">Téléphone</label>
-
-                <input type="tel" placeholder="+225 07 00 00 00 00" className="w-full p-3 mt-1 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" />
-
-              </div>
-
-              <div>
-
-                <label className="text-xs font-bold text-gray-500 uppercase">Véhicule assigné</label>
-
-                <input type="text" placeholder="Ex: Tricycle - 1234 AB" className="w-full p-3 mt-1 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" />
-
-              </div>
-
-            </div>
-
-            <div className="flex justify-end space-x-3 mt-8">
-
-              <button onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 text-gray-500 font-bold hover:bg-gray-100 rounded-xl transition-all">
-
-                Annuler
-
-              </button>
-
-              <button onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 transition-all shadow-lg shadow-orange-200">
-
-                Enregistrer
-
-              </button>
-
-            </div>
-
-          </div>
-
-        </div>
-
-      )}
-
-    </div>
-
+const Empty: FC<{ label: string }> = ({ label }) => (
+  <div className="rounded-xl border border-dashed border-gray-200 p-8 text-sm text-gray-500 text-center">
+    {label}
+  </div>
+);
+
+const Status: FC<{ connected: boolean }> = ({ connected }) => (
+  <span className={`text-xs font-semibold px-3 py-1 rounded-full ${connected ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+    {connected ? 'API connectée' : 'API déconnectée'}
+  </span>
+);
+
+// ============================================================================
+// 1. LOGISTIQUE : TRICYCLES (état réel de la flotte, rafraîchi toutes les 30 s)
+// ============================================================================
+export const TricyclesModule: FC<ModuleProps> = ({ accessToken }) => {
+  const { items, connected, loading, error, refresh } = useAdminSocketList<Tricycle>(
+    'tricycles:get-all', 'tricycles:list', accessToken,
   );
-
-};
-
-
-
-export const UtilisateursModule: React.FC = () => {
-
-  const users: AppUser[] = [
-
-    { id: '1', nom: 'Kouassi Amen', email: 'amen@example.com', role: 'USER', date: '2026-05-12' },
-
-    { id: '2', nom: 'Sylla Daouda', email: 'daouda@messay.ci', role: 'SUPER_ADMIN', date: '2026-02-01' },
-
-    { id: '3', nom: 'Kevin Gael', email: 'kevin@messay.ci', role: 'ADMIN', date: '2026-02-01' },
-
-  ];
-
-
+  const [search, setSearch] = useState('');
+  const filtered = useMemo(() => items.filter(item =>
+    `${item.immatriculation} ${item.chauffeur ?? ''}`.toLowerCase().includes(search.toLowerCase()),
+  ), [items, search]);
+  const disponibles = items.filter(item => item.status === 'DISPONIBLE').length;
+  const enMouvement = items.filter(item => typeof item.vitesse === 'number' && item.vitesse > 0).length;
 
   return (
-
-    <div className="space-y-6">
-
-      <div>
-
-        <h2 className="text-2xl font-black text-gray-800">👥 Gestion des Utilisateurs</h2>
-
-        <p className="text-sm text-gray-500">Administration des comptes, rôles et attributions des droits.</p>
-
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-
-        <div className="overflow-x-auto">
-
-          <table className="w-full text-left border-collapse">
-
-            <thead>
-
-              <tr className="bg-gray-50 text-xs font-black text-gray-400 uppercase tracking-wider">
-
-                <th className="px-6 py-4">Nom</th>
-
-                <th className="px-6 py-4">Email</th>
-
-                <th className="px-6 py-4">Rôle</th>
-
-                <th className="px-6 py-4">Date de création</th>
-
-              </tr>
-
-            </thead>
-
-            <tbody className="divide-y divide-gray-100 text-sm">
-
-              {users.map((u) => (
-
-                <tr key={u.id} className="hover:bg-gray-50 transition-colors">
-
-                  <td className="px-6 py-4 font-bold text-gray-700">{u.nom}</td>
-
-                  <td className="px-6 py-4 text-gray-500">{u.email}</td>
-
-                  <td className="px-6 py-4">
-
-                    <span className={`inline-flex items-center space-x-1 px-3 py-1 rounded-full text-[10px] font-black tracking-wider ${
-
-                      u.role === 'SUPER_ADMIN' ? 'bg-purple-50 text-purple-700' :
-
-                      u.role === 'ADMIN' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600'
-
-                    }`}>
-
-                      <Shield size={12} /><span>{u.role}</span>
-
-                    </span>
-
-                  </td>
-
-                  <td className="px-6 py-4 text-gray-400">{u.date}</td>
-
-                </tr>
-
-              ))}
-
-            </tbody>
-
-          </table>
-
-        </div>
-
-      </div>
-
-    </div>
-
-  );
-
-};
-
-
-
-// ==========================================
-
-// 3. MODULE FINANCE
-
-// ==========================================
-
-
-
-export const FinanceModule: React.FC = () => {
-
-  const [filter, setFilter] = useState<'Tout' | 'Entrées' | 'Sorties'>('Tout');
-
-  
-
-  const transactions: Transaction[] = [
-
-    { id: 'TXN-001', motif: 'Commission Trajet Tricycle', montant: 4500, date: '2026-06-29', type: 'ENTRÉE' },
-
-    { id: 'TXN-002', motif: 'Achat Ticket Bus', montant: 1200, date: '2026-06-28', type: 'ENTRÉE' },
-
-    { id: 'TXN-003', motif: 'Maintenance Flotte', montant: 25000, date: '2026-06-28', type: 'SORTIE' },
-
-    { id: 'TXN-004', motif: 'Commission Partenaire BTP', montant: 85000, date: '2026-06-27', type: 'ENTRÉE' },
-
-  ];
-
-
-
-  const filteredTransactions = useMemo(() => {
-
-    if (filter === 'Entrées') return transactions.filter(t => t.type === 'ENTRÉE');
-
-    if (filter === 'Sorties') return transactions.filter(t => t.type === 'SORTIE');
-
-    return transactions;
-
-  }, [filter]);
-
-
-
-  const totalRevenu = useMemo(() => transactions.filter(t => t.type === 'ENTRÉE').reduce((acc, curr) => acc + curr.montant, 0), []);
-
-
-
-  const stats = [
-
-    { label: 'Revenu Total', value: `${totalRevenu.toLocaleString('fr-FR')} F`, icon: <Wallet size={20} />, trend: '+12.5%' },
-
-    { label: 'Courses Validées', value: '8,240', icon: <TrendingUp size={20} />, trend: '+5.2%' },
-
-    { label: 'Dépenses Flotte', value: '3,120,000 F', icon: <TrendingDown size={20} />, trend: '-2.1%' },
-
-  ];
-
-
-
-  return (
-
-    <div className="space-y-6">
-
-      <div className="flex justify-between items-end">
-
+    <section className="space-y-5">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-
-          <h2 className="text-2xl font-black text-gray-800">💰 Finance & Rapports</h2>
-
-          <p className="text-sm text-gray-500">Tableau de bord financier de MESSAY.</p>
-
+          <h2 className="text-xl font-bold text-gray-900 flex gap-2 items-center"><Bike size={22} /> Flotte de tricycles</h2>
+          <p className="text-sm text-gray-500">Instantané du backend, actualisation toutes les 30 secondes (100 véhicules maximum).</p>
         </div>
-
-        <div className="flex gap-2">
-
-          <button className="flex items-center space-x-2 bg-orange-600 text-white px-5 py-3 rounded-2xl font-bold hover:bg-orange-700 shadow-lg">
-
-            <PlusCircle size={18} /><span>Nouvelle Transaction</span>
-
-          </button>
-
-          <button className="flex items-center space-x-2 bg-white border border-gray-200 px-5 py-3 rounded-2xl font-bold text-gray-700 hover:bg-gray-50">
-
-            <Download size={18} />
-
-          </button>
-
-        </div>
-
-      </div>
-
-
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-        {stats.map((stat, idx) => (
-
-          <div key={idx} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-
-            <div className="flex justify-between items-start">
-
-              <div className="p-3 bg-orange-50 text-orange-600 rounded-xl">{stat.icon}</div>
-
-              <span className="text-xs font-black text-green-600 bg-green-50 px-2 py-1 rounded-full">{stat.trend}</span>
-
-            </div>
-
-            <p className="text-gray-400 text-sm mt-4 font-medium">{stat.label}</p>
-
-            <p className="text-2xl font-black text-gray-900 mt-1">{stat.value}</p>
-
+        <div className="flex items-center gap-2"><Status connected={connected} /><button type="button" onClick={refresh} className="px-3 py-2 rounded-xl border text-sm hover:bg-gray-50">Actualiser</button></div>
+      </header>
+      {error && <Alert message={error} />}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {[
+          ['Tricycles chargés', items.length],
+          ['Disponibles', disponibles],
+          ['Vitesse > 0 km/h', enMouvement],
+        ].map(([label, value]) => (
+          <div key={label} className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+            <p className="text-sm text-gray-500">{label}</p>
+            <p className="text-2xl font-black text-gray-900 mt-1">{loading ? '…' : value}</p>
           </div>
-
         ))}
-
       </div>
-
-
-
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-
-        <div className="px-6 py-5 border-b border-gray-50 flex justify-between items-center">
-
-          <h3 className="font-bold text-gray-800">Historique des flux</h3>
-
-          <div className="flex space-x-2 bg-gray-50 p-1 rounded-full">
-
-            {(['Tout', 'Entrées', 'Sorties'] as const).map((f) => (
-
-              <button key={f} onClick={() => setFilter(f)} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${filter === f ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>{f}</button>
-
-            ))}
-
+      <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
+        <label className="flex gap-2 items-center bg-gray-50 rounded-xl px-3 py-2 max-w-md">
+          <Search size={18} className="text-gray-400" />
+          <input aria-label="Rechercher un tricycle" value={search} onChange={event => setSearch(event.target.value)} placeholder="Immatriculation ou conducteur" className="bg-transparent outline-none w-full text-sm" />
+        </label>
+        {loading ? <Empty label="Chargement de la flotte…" /> : filtered.length === 0 ? <Empty label="Aucun tricycle retourné par le backend." /> : (
+          <div className="overflow-x-auto mt-4">
+            <table className="min-w-full text-sm text-left">
+              <thead className="bg-gray-50 text-gray-500"><tr><th className="p-3">Immatriculation</th><th className="p-3">Conducteur</th><th className="p-3">Statut</th><th className="p-3">Vitesse</th><th className="p-3">Position GPS</th><th className="p-3">Dernière activité</th></tr></thead>
+              <tbody className="divide-y divide-gray-100">{filtered.map(item => (
+                <tr key={item.id}>
+                  <td className="p-3 font-semibold">{item.immatriculation}</td>
+                  <td className="p-3">{item.chauffeur || 'Non assigné'}</td>
+                  <td className="p-3">{item.status}</td>
+                  <td className="p-3">{typeof item.vitesse === 'number' ? `${item.vitesse} km/h` : '—'}</td>
+                  <td className="p-3">{typeof item.position?.lat === 'number' && typeof item.position?.lng === 'number'
+                    ? <span className="inline-flex gap-1 items-center"><MapPin size={13} /> {item.position.lat.toFixed(4)}, {item.position.lng.toFixed(4)}</span> : '—'}</td>
+                  <td className="p-3">{formatDateTime(item.derniereActivite)}</td>
+                </tr>
+              ))}</tbody>
+            </table>
           </div>
-
-        </div> {/* <--- C'EST CETTE BALISE QUI MANQUAIT ! */}
-
-        
-
-        <table className="w-full text-left border-collapse">
-
-          <thead>
-
-            <tr className="bg-gray-50 text-xs font-black text-gray-400 uppercase">
-
-              <th className="px-6 py-4">ID Transaction</th>
-
-              <th className="px-6 py-4">Motif</th>
-
-              <th className="px-6 py-4">Date</th>
-
-              <th className="px-6 py-4 text-right">Montant</th>
-
-            </tr>
-
-          </thead>
-
-          <tbody className="divide-y divide-gray-100 text-sm">
-
-            {filteredTransactions.map((t) => (
-
-              <tr key={t.id} className="hover:bg-gray-50 transition-colors">
-
-                <td className="px-6 py-4 font-mono text-gray-500">{t.id}</td>
-
-                <td className="px-6 py-4 font-medium text-gray-700">{t.motif}</td>
-
-                <td className="px-6 py-4 text-gray-500">{t.date}</td>
-
-                <td className={`px-6 py-4 text-right font-black ${t.type === 'ENTRÉE' ? 'text-green-600' : 'text-red-600'}`}>
-
-                  {t.type === 'ENTRÉE' ? '+' : '-'} {t.montant.toLocaleString('fr-FR')} F
-
-                </td>
-
-              </tr>
-
-            ))}
-
-          </tbody>
-
-        </table>
-
+        )}
       </div>
-
-    </div>
-
+      <p className="text-xs text-gray-500">« En mouvement » est estimé à partir de la dernière vitesse enregistrée. Le serveur ne diffuse pas encore de flux GPS global en direct aux administrateurs.</p>
+    </section>
   );
+};
 
+// ============================================================================
+// 2. LOGISTIQUE : BILLETS INTERURBAINS (reçus du backend)
+// ============================================================================
+export const BusTicketsModule: FC<ModuleProps> = ({ accessToken }) => {
+  const { items, connected, loading, error, refresh } = useAdminSocketList<Ticket>(
+    'tickets:get-today', 'tickets:list', accessToken,
+  );
+  const [company, setCompany] = useState('TOUTES');
+  const companies = useMemo(() => Array.from(new Set(items.map(t => t.compagnie).filter(Boolean))).sort(), [items]);
+  const filtered = company === 'TOUTES' ? items : items.filter(item => item.compagnie === company);
+  const paid = filtered.filter(item => item.statut === 'PAYE');
+
+  return (
+    <section className="space-y-5">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold flex items-center gap-2"><BusFront size={22} /> Billetterie interurbaine</h2>
+          <p className="text-sm text-gray-500">Billets enregistrés depuis minuit UTC, limités aux 100 plus récents.</p>
+        </div>
+        <div className="flex items-center gap-2"><Status connected={connected} /><button type="button" onClick={refresh} className="px-3 py-2 rounded-xl border text-sm hover:bg-gray-50">Actualiser</button></div>
+      </header>
+      {error && <Alert message={error} />}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {[
+          ['Billets chargés', filtered.length],
+          ['Billets payés', paid.length],
+          ['Montant des billets payés', formatAmount(paid.reduce((sum, ticket) => sum + (Number(ticket.prix) || 0), 0))],
+        ].map(([label, value]) => <div key={label} className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm"><p className="text-sm text-gray-500">{label}</p><p className="font-black text-xl mt-1">{loading ? '…' : value}</p></div>)}
+      </div>
+      <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-4 space-y-4">
+        <div className="flex flex-wrap gap-3 justify-between items-center">
+          <label className="text-sm">Compagnie :{' '}
+            <select aria-label="Filtrer par compagnie" value={company} onChange={e => setCompany(e.target.value)} className="rounded-lg border p-2">
+              <option value="TOUTES">Toutes</option>
+              {companies.map(item => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <button type="button" disabled={filtered.length === 0} onClick={() => exportCsv('messay-billets.csv',
+            ['Compagnie', 'Passager', 'Téléphone', 'Trajet', 'Date de départ', 'Heure de départ', 'Siège', 'Prix FCFA', 'Statut', 'Paiement'],
+            filtered.map(t => [t.compagnie, t.passager, t.telephone, t.trajet, t.date, t.heure, t.siege, t.prix, t.statut, t.paiement]))}
+            className="inline-flex gap-2 items-center border rounded-xl px-3 py-2 text-sm disabled:opacity-40"><Download size={16} /> Export CSV</button>
+        </div>
+        {loading ? <Empty label="Chargement des billets…" /> : filtered.length === 0 ? <Empty label="Aucun billet disponible pour ce filtre." /> : (
+          <div className="overflow-x-auto"><table className="min-w-full text-sm text-left">
+            <thead className="bg-gray-50 text-gray-500"><tr><th className="p-3">Compagnie</th><th className="p-3">Passager</th><th className="p-3">Téléphone</th><th className="p-3">Trajet</th><th className="p-3">Départ</th><th className="p-3">Siège</th><th className="p-3">Prix</th><th className="p-3">Statut</th></tr></thead>
+            <tbody className="divide-y divide-gray-100">{filtered.map(t => <tr key={t.id}>
+              <td className="p-3 font-semibold">{t.compagnie}</td><td className="p-3">{t.passager || '—'}</td><td className="p-3">{t.telephone || '—'}</td><td className="p-3">{t.trajet}</td>
+              <td className="p-3">{formatDate(t.date)} · {t.heure}</td><td className="p-3">{t.siege || '—'}</td><td className="p-3">{formatAmount(Number(t.prix))}</td><td className="p-3">{t.statut}</td>
+            </tr>)}</tbody>
+          </table></div>
+        )}
+      </div>
+      <p className="text-xs text-gray-500">Le backend fournit la date et l'heure de départ, mais pas encore la date d'achat dans cet événement. Le montant des billets payés n'est pas assimilé aux commissions MESSAY.</p>
+    </section>
+  );
+};
+
+// ============================================================================
+// 3. RESSOURCES HUMAINES : CONDUCTEURS AFFECTÉS (pas la liste exhaustive)
+// ============================================================================
+export const ChauffeursModule: FC<ActionProps> = ({ accessToken, onRegisterDriver }) => {
+  const { items, loading, error } = useAdminSocketList<Tricycle>(
+    'tricycles:get-all', 'tricycles:list', accessToken,
+  );
+  const [search, setSearch] = useState('');
+  const assigned = useMemo(() => items.filter(t => t.chauffeur && t.chauffeur !== 'Non assigné'), [items]);
+  const filtered = assigned.filter(t => `${t.chauffeur} ${t.chauffeurTel ?? ''} ${t.immatriculation}`.toLowerCase().includes(search.toLowerCase()));
+  return (
+    <section className="space-y-5">
+      <header className="flex flex-wrap justify-between items-center gap-3">
+        <div><h2 className="text-xl font-bold flex items-center gap-2"><ShieldCheck size={22} /> Conducteurs affectés</h2><p className="text-sm text-gray-500">Conducteurs associés aux tricycles chargés ; il ne s'agit pas de tous les comptes conducteurs.</p></div>
+        {onRegisterDriver && <button type="button" onClick={onRegisterDriver} className="bg-orange-600 text-white rounded-xl px-4 py-2 font-semibold">Enregistrer un conducteur</button>}
+      </header>
+      {error && <Alert message={error} />}
+      <label className="flex items-center gap-2 bg-white rounded-xl px-3 py-2 border max-w-md"><Search size={18} /><input aria-label="Rechercher un conducteur" className="outline-none w-full text-sm" placeholder="Nom, numéro, tricycle" value={search} onChange={e => setSearch(e.target.value)} /></label>
+      {loading ? <Empty label="Chargement des affectations…" /> : filtered.length === 0 ? <Empty label="Aucun conducteur affecté trouvé." /> : (
+        <div className="bg-white rounded-2xl border overflow-x-auto"><table className="min-w-full text-sm text-left"><thead className="bg-gray-50 text-gray-500"><tr><th className="p-3">Conducteur</th><th className="p-3">Téléphone</th><th className="p-3">Tricycle</th><th className="p-3">Statut du véhicule</th></tr></thead><tbody className="divide-y">{filtered.map(t => <tr key={t.id}><td className="p-3 font-semibold">{t.chauffeur}</td><td className="p-3">{t.chauffeurTel || '—'}</td><td className="p-3">{t.immatriculation}</td><td className="p-3">{t.status}</td></tr>)}</tbody></table></div>
+      )}
+      {!onRegisterDriver && <Alert message="La création d'un conducteur et l'attribution de son identifiant doivent passer par l'API ADMIN sécurisée après contrôle des documents au bureau MESSAY. Branchez l'action onRegisterDriver au formulaire administratif existant ; aucun compte n'est créé localement." />}
+    </section>
+  );
+};
+
+// ============================================================================
+// 4. UTILISATEURS : aucune donnée fictive ni statut « en ligne » inventé
+// ============================================================================
+export const UtilisateursModule: FC = () => (
+  <section className="space-y-4">
+    <h2 className="text-xl font-bold flex items-center gap-2"><Users size={22} /> Gestion des utilisateurs</h2>
+    <Alert message="Ce composant ne connaît pas encore le contrat de l'API ADMIN des utilisateurs. Les exemples de comptes ont été supprimés pour ne pas afficher de faux utilisateurs. Utilisez la page UsersPage existante en attendant son branchement vérifié." />
+    <Empty label="Aucune donnée utilisateurs chargée dans ce composant." />
+    <p className="text-xs text-gray-500">La liste des utilisateurs inscrits, les sessions actives et les mouvements GPS sont trois données distinctes. Les présences et déplacements nécessitent des endpoints autorisés et un suivi serveur adapté.</p>
+  </section>
+);
+
+// ============================================================================
+// 5. FINANCES : données réelles des endpoints ADMIN connus
+// ============================================================================
+export const FinanceModule: FC<ModuleProps> = ({ accessToken }) => {
+  const [stats, setStats] = useState<FinanceStats | null>(null);
+  const [transactions, setTransactions] = useState<FinanceTransaction[]>([]);
+  const [filter, setFilter] = useState<'TOUT' | 'ENTREE' | 'SORTIE'>('TOUT');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const token = tokenFromStorage(accessToken);
+    if (!token) {
+      setLoading(false);
+      setError('Session administrateur introuvable : connexion JWT requise.');
+      return;
+    }
+    const abort = new AbortController();
+    setLoading(true);
+    setError(null);
+    const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+    const load = async () => {
+      try {
+        const [statsResponse, transactionsResponse] = await Promise.all([
+          fetch(`${API_URL}/finance/stats`, { headers, signal: abort.signal }),
+          fetch(`${API_URL}/finance/transactions?limit=100`, { headers, signal: abort.signal }),
+        ]);
+        if (!statsResponse.ok || !transactionsResponse.ok) {
+          throw new Error(`API finances indisponible (${statsResponse.status} / ${transactionsResponse.status}). Vérifier le JWT ADMIN et l'URL.`);
+        }
+        const receivedStats: FinanceStats = await statsResponse.json();
+        const receivedTransactions: unknown = await transactionsResponse.json();
+        if (!cancelled) {
+          setStats(receivedStats);
+          setTransactions(Array.isArray(receivedTransactions) ? receivedTransactions as FinanceTransaction[] : []);
+          setError(null);
+        }
+      } catch (caught) {
+        if (!cancelled && !abort.signal.aborted) {
+          setError(caught instanceof Error ? caught.message : 'Chargement des finances impossible.');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void load();
+    return () => { cancelled = true; abort.abort(); };
+  }, [accessToken, reload]);
+
+  const filtered = transactions.filter(t => filter === 'TOUT' || t.type === filter);
+  const cards = [
+    { label: 'Revenus validés', value: formatAmount(stats?.revenuTotal) },
+    { label: 'Dépenses validées', value: formatAmount(stats?.depenses) },
+    { label: 'Résultat net calculé', value: formatAmount(stats?.benefice) },
+    { label: 'Courses terminées', value: stats?.totalCourses ?? '—' },
+  ];
+  return (
+    <section className="space-y-5">
+      <header className="flex flex-wrap justify-between items-center gap-3">
+        <div><h2 className="text-xl font-bold flex items-center gap-2"><CircleDollarSign size={22} /> Finances et rapports</h2><p className="text-sm text-gray-500">Transactions validées et statistiques calculées par le backend.</p></div>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setReload(n => n + 1)} className="border rounded-xl px-3 py-2 text-sm">Actualiser</button>
+          <button type="button" disabled={!transactions.length} onClick={() => exportCsv('messay-transactions.csv', ['ID', 'Type', 'Montant FCFA', 'Date', 'Statut'], transactions.map(t => [t.id, t.type, t.montant, t.createdAt, t.statut]))} className="border rounded-xl px-3 py-2 text-sm inline-flex items-center gap-2 disabled:opacity-40"><Download size={16} /> Export CSV</button>
+        </div>
+      </header>
+      {error && <Alert message={error} />}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        {cards.map(card => <div key={card.label} className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm"><p className="flex gap-2 items-center text-sm text-gray-500"><CircleDollarSign size={16} />{card.label}</p><p className="text-xl font-black text-gray-900 mt-2">{loading ? '…' : card.value}</p></div>)}
+      </div>
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+        <div className="flex flex-wrap justify-between items-center gap-3"><h3 className="font-bold">Transactions récentes (100 maximum)</h3><label className="text-sm">Flux :{' '}<select aria-label="Filtrer les transactions" value={filter} onChange={e => setFilter(e.target.value as typeof filter)} className="p-2 border rounded-lg"><option value="TOUT">Tous</option><option value="ENTREE">Entrées</option><option value="SORTIE">Sorties</option></select></label></div>
+        {loading ? <Empty label="Chargement des transactions…" /> : filtered.length === 0 ? <Empty label="Aucune transaction retournée par le backend." /> : (
+          <div className="overflow-x-auto"><table className="min-w-full text-sm text-left"><thead className="bg-gray-50 text-gray-500"><tr><th className="p-3">Référence</th><th className="p-3">Type</th><th className="p-3">Date</th><th className="p-3">Statut</th><th className="p-3 text-right">Montant</th></tr></thead><tbody className="divide-y">{filtered.map(t => <tr key={t.id}><td className="p-3 font-mono">{t.id.slice(0, 12)}</td><td className="p-3">{t.type}</td><td className="p-3">{formatDateTime(t.createdAt)}</td><td className="p-3">{t.statut || '—'}</td><td className={`p-3 text-right font-semibold ${t.type === 'SORTIE' ? 'text-red-700' : 'text-green-700'}`}>{formatAmount(t.montant)}</td></tr>)}</tbody></table></div>
+        )}
+      </div>
+      <p className="text-xs text-gray-500">{stats?.note || 'Les recettes de billetterie ne sont pas nécessairement consolidées avec les transactions financières.'} Les rapports techniques et administratifs nécessitent leurs propres endpoints.</p>
+    </section>
+  );
 };

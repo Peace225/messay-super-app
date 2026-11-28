@@ -27,7 +27,8 @@
       },
       "config": {
         "googleMapsApiKey": "REMPLACER_PAR_VOTRE_CLE_GOOGLE_MAPS_IOS"
-      }
+      },
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
       "package": "com.messay.tricycle",
@@ -98,16 +99,17 @@
       ],
       [
         "expo-build-properties",
-  {
-    "android": {
-      "compileSdkVersion": 37,
-      "targetSdkVersion": 36,
-      "minSdkVersion": 24
-    },
-    "ios": {
-      "deploymentTarget": "16.4"
-    }
-  }
+        {
+          "android": {
+            "compileSdkVersion": 37,
+            "targetSdkVersion": 36,
+            "minSdkVersion": 24
+          },
+          "ios": {
+            "deploymentTarget": "16.4",
+            "useFrameworks": "static"
+          }
+        }
       ],
       "@react-native-community/datetimepicker",
       [

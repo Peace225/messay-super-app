@@ -1,50 +1,65 @@
-import { PaiementRepository } from '../repositories/paiement.repository';
-import { CreatePaiementInput } from '../validators/paiement.validator';
+import type { PaiementRepository } from '../repositories/paiement.repository';
+import type { CreatePaiementInput } from '../validators/paiement.validator';
+
+/**
+ * Aucun paiement ne peut être initialisé tant que les contrôles suivants
+ * ne sont pas opérationnels côté serveur :
+ * - réservation du départ et des places de manière atomique ;
+ * - calcul du montant à partir de la ligne, jamais depuis l'application ;
+ * - création d'une session auprès du vrai prestataire ;
+ * - confirmation authentifiée (webhook et vérification fournisseur) ;
+ * - émission du billet uniquement après encaissement confirmé.
+ */
+export class PaiementIndisponibleError extends Error {
+  readonly status = 503;
+  readonly statusCode = 503;
+  readonly code = 'PAIEMENT_PRESTATAIRE_NON_CONNECTE';
+
+  constructor(message = 'Le paiement en ligne MESSAY n’est pas encore activé.') {
+    super(message);
+    this.name = 'PaiementIndisponibleError';
+  }
+}
+
+/** Contrat conservé pour les contrôleurs qui lisent le résultat de l'initialisation. */
+export type InitialisationPaiementResult = {
+  paiementId: string;
+  paymentUrl?: string;
+  clientSecret?: string;
+  message?: string;
+};
+
+/** Le type existant de mise à jour reste compatible avec les contrôleurs. */
+type ConfirmationPaiementResult = Awaited<
+  ReturnType<typeof PaiementRepository.updateStatus>
+>;
 
 export class PaiementService {
   /**
-   * Initialiser un paiement pour une course ou un produit BTP
+   * Initialisation désactivée tant que le parcours de paiement réel n'est
+   * pas raccordé. Ne crée ni transaction en attente, ni URL fictive.
    */
-  async initializePayment(userId: string, data: CreatePaiementInput) {
-    // 1. Enregistrer la transaction "EN_ATTENTE" dans notre BDD
-    const paiement = await PaiementRepository.create({
-      userId,
-      montant: data.montant,
-      moyen: data.moyen,
-      typeTransaction: data.typeTransaction,
-      referenceId: data.referenceId, // ID de la course ou de la commande
-      statut: 'EN_ATTENTE',
-    });
-
-    // 2. Logique spécifique selon le moyen de paiement
-    if (data.moyen === 'WAVE' || data.moyen === 'ORANGE_MONEY') {
-      // TODO: Appeler l'API de l'agrégateur (ex: CinetPay ou Bizao)
-      return { 
-        paiementId: paiement.id, 
-        paymentUrl: "https://api.wave.com/checkout/...", // URL de redirection
-        message: "Redirection vers l'opérateur mobile" 
-      };
-    }
-
-    if (data.moyen === 'CARTE_BANCAIRE') {
-      // TODO: Créer un PaymentIntent Stripe
-      return { 
-        clientSecret: "pi_3N...", 
-        paiementId: paiement.id 
-      };
-    }
-
-    return paiement;
+  async initializePayment(
+    _userId: string,
+    _data: CreatePaiementInput,
+  ): Promise<InitialisationPaiementResult> {
+    throw new PaiementIndisponibleError(
+      'Paiement indisponible : réservation, tarif et prestataire non encore validés côté serveur.',
+    );
   }
 
   /**
-   * Webhook : Méthode appelée par l'opérateur pour confirmer le succès
+   * Aucune entrée publique ne doit pouvoir confirmer un paiement en se
+   * contentant d'un ID transmis par un client ou un webhook non vérifié.
+   * La future confirmation sera un processus serveur idempotent, après
+   * authentification de la notification et relecture du statut prestataire.
    */
-  async confirmPayment(paiementId: string, externalTransactionId: string) {
-    return await PaiementRepository.updateStatus(
-      paiementId, 
-      'REUSSI', 
-      externalTransactionId
+  async confirmPayment(
+    _paiementId: string,
+    _externalTransactionId: string,
+  ): Promise<ConfirmationPaiementResult> {
+    throw new PaiementIndisponibleError(
+      'Confirmation refusée : aucune preuve de paiement vérifiée auprès du prestataire.',
     );
   }
 }
